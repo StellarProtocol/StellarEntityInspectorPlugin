@@ -26,6 +26,7 @@ public sealed partial class Plugin
         UnsubscribeSelfStats();                 // frozen data is truth — no live stat poll
         RebuildSnapshots();
         _window.SetVisible(true);
+        _window.BringToFront();
         // Show the entity's 3D model. The portrait builds it from a social-data RPC (AsyncGetSocialData by charId),
         // so it renders for ANY player — online/offline, present/remote — exactly like a live inspect. It reflects
         // the entity's CURRENT appearance; the snapshot freezes stats/gear, not the live model.
