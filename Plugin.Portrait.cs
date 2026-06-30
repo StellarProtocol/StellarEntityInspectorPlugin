@@ -14,7 +14,7 @@ public sealed partial class Plugin
     private HudElement BuildPortrait()
         => new ConditionalElement(() => _target.IsPlayer,
             new RenderTextureHostElement(() => _services.EntityPortrait.Texture, PortraitW, PortraitH,
-                OnDrag:           (dx, dy) => _services.EntityPortrait.Orbit(dx, dy),  // click-drag spins the model
+                OnDrag:           (dx, dy) => _services.EntityPortrait.Orbit(dx, dy),
                 OnScroll:         d        => _services.EntityPortrait.Zoom(d),        // scroll zooms
                 OnPan:            (dx, dy) => _services.EntityPortrait.Pan(dx, dy),     // shift+drag pans the camera
                 OnViewportResize: (w, h)   => _services.EntityPortrait.SetViewport(w, h),   // RT tracks the pane size

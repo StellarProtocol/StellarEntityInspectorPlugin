@@ -19,6 +19,8 @@ public sealed partial class Plugin : IStellarPlugin, Stellar.PluginContracts.IFr
 {
     public string Name => "EntityInspector";
 
+    private const string HarmonyId = "stellar.entity-inspector-plugin";
+
     private readonly IPluginServices _services;
     private IWindowControl _window = null!;
     private IDisposable _inspectItem = null!;
@@ -70,6 +72,11 @@ public sealed partial class Plugin : IStellarPlugin, Stellar.PluginContracts.IFr
         _services.Exchange.Provide<Stellar.PluginContracts.IFrozenEntityViewer>(this);
 
         _services.Framework.Update += OnUpdate;
+
+        if (VerticalRotationPatch.Install(HarmonyId, _services.Log.Info))
+            _services.Log.Info("[EntityInspector] vertical rotation patch installed");
+        else
+            _services.Log.Warning("[EntityInspector] vertical rotation patch failed — portrait drag will stay clamped");
     }
 
     /// <summary>Open the inspector on an entity (the IEntityContextMenu "Inspect" action).</summary>
@@ -79,10 +86,13 @@ public sealed partial class Plugin : IStellarPlugin, Stellar.PluginContracts.IFr
         _frozen = null;                                // a live Open() leaves any frozen-session view
         _gearDetailWindow.SetVisible(false);           // retargeting must not leave a stale item popup
         _target = entity;
+        VerticalRotationPatch.Activate(true);
+        VerticalRotationPatch.ResetPitch();
         RebuildSnapshots();                            // before subscribe: the broadcast snapshot decides which ids need polling
         if (IsSelf) SubscribeSelfStats();
         else UnsubscribeSelfStats();                   // retargeting self → other releases the poll set (review finding)
         _window.SetVisible(true);
+        _window.BringToFront();
         // Start the portrait directly (do NOT gate on _window.IsShown — it isn't necessarily true
         // synchronously right after SetVisible, which left the portrait box blank).
         _services.EntityPortrait.Show(entity);
@@ -94,6 +104,7 @@ public sealed partial class Plugin : IStellarPlugin, Stellar.PluginContracts.IFr
         _window.SetVisible(false);
         _gearDetailWindow.SetVisible(false);   // a floating detail popup must not outlive its inspector
         _services.EntityPortrait.Hide();       // release the portrait model when hidden
+        VerticalRotationPatch.Activate(false);
         UnsubscribeSelfStats();                // stop the self-stat poll set while the window is closed
     }
 
@@ -101,6 +112,7 @@ public sealed partial class Plugin : IStellarPlugin, Stellar.PluginContracts.IFr
     {
         _services.Framework.Update -= OnUpdate;
         _services.EntityPortrait.Hide();
+        VerticalRotationPatch.Uninstall();
         _inspectItem.Dispose();
         _inspectAction.Dispose();
         UnsubscribeSelfStats();
@@ -119,6 +131,7 @@ public sealed partial class Plugin : IStellarPlugin, Stellar.PluginContracts.IFr
     {
         TickAutoOpenFlag(dt);
         if (!_window.IsShown) return;
+        VerticalRotationPatch.ApplyPitch(); // per-tick ZModel2RTMono write (after ZModel2RT.Update clamps)
         _accum += dt;
         if (_accum < SnapshotIntervalS) return;
         _accum = 0f;

@@ -12,8 +12,10 @@
     <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
   </PropertyGroup>
   <ItemGroup>
-    <PackageReference Include="Stellar.Abstractions" Version="1.1.1" />
-    <PackageReference Include="Stellar.PluginContracts" Version="1.1.1" />
-    <PackageReference Include="Stellar.Plugin.InteropRefs" Version="1.1.1" />
+    <PackageReference Include="Stellar.Abstractions" Version="1.9.0" />
+    <PackageReference Include="Stellar.PluginContracts" Version="1.9.0" />
+    <PackageReference Include="Stellar.Plugin.InteropRefs" Version="1.9.0" />
   </ItemGroup>
+  <!-- Local overrides: deploy targets, game paths, local framework refs — all in Local.props (gitignored) -->
+  <Import Project="$(MSBuildThisFileDirectory)Local.props" Condition="Exists('$(MSBuildThisFileDirectory)Local.props')" />
 </Project>
