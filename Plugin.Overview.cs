@@ -16,7 +16,9 @@ public sealed partial class Plugin
     // (stat id to display, paired flat rating id or 0 — rating renders as a trailing "(N)").
     private static readonly (string Title, (int Id, int RatingId)[] Rows)[] OverviewSections =
     {
-        ("Core",      new[] { (11330, 0), (11340, 0), (11320, 0), (11350, 0), (11360, 0) }),
+        // 10030 = total Ability Score, 11440 = total Illusion Strength (season stat) — the two
+        // headline numbers the game's own profile shows (user-flagged missing 2026-07-03).
+        ("Core",      new[] { (10030, 0), (11440, 0), (11330, 0), (11340, 0), (11320, 0), (11350, 0), (11360, 0) }),
         ("Primary",   new[] { (11010, 0), (11020, 0), (11030, 0), (11040, 0) }),
         ("Secondary", new[] { (11710, 11110), (11930, 11120), (11780, 11130),
                               (11940, 11140), (11950, 11150), (11970, 11170) }),

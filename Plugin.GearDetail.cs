@@ -91,6 +91,12 @@ public sealed partial class Plugin
         if (row is { } r)
         {
             AddGd("GS", r.Gs.ToString("N0", CultureInfo.InvariantCulture));
+            // Raid gear breaks through past its base GS — the bag tile's Lv.<n> is the current
+            // breakthrough stage's EquipGs (user-flagged 2026-07-03). The stage count is on the
+            // wire (EquipAttr.break_through_time); the table lookup lives web-side, so show the
+            // stage explicitly here rather than a wrong "GS = level" claim.
+            if (inst is { BreakThroughTime: > 0 } bt)
+                AddGd("Breakthrough", $"stage {bt.BreakThroughTime.ToString(CultureInfo.InvariantCulture)}");
             // Wear REQUIREMENT (table data) — labelled explicitly; rendered as a bare "Lv.45" on the
             // card it read as strengthen level (caps at 30), user-flagged in-world 2026-06-13.
             if (r.WearLevel > 1) AddGd("Req. level", r.WearLevel.ToString(CultureInfo.InvariantCulture));
