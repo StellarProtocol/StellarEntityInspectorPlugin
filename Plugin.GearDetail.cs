@@ -36,8 +36,9 @@ public sealed partial class Plugin
                 Category:    WindowCategory.HUD,
                 Style:       WindowPanelStyle.GlassMenu)
             { StartVisible = false, Closable = true, Draggable = true,
-              // Gameplay HUD (gear detail popup for the inspector) — draw only while in-world.
-              ShouldRender = () => _services.ClientState.Phase == GamePhase.World },
+              // Gameplay HUD (gear detail popup for the inspector) — draw only while in-world and not on a loading screen.
+              ShouldRender = () => _services.ClientState.Phase == GamePhase.World
+                                   && (_services.ClientState.UiState & GameUIState.Loading) == 0 },
             BuildGearDetailRoot(),
             OnClose: () => _gearDetailWindow.SetVisible(false)));
 
