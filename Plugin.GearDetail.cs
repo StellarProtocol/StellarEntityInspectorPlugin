@@ -35,7 +35,9 @@ public sealed partial class Plugin
                 DefaultRect: new WindowRect(120f, 120f, DetailW, 260f),
                 Category:    WindowCategory.HUD,
                 Style:       WindowPanelStyle.GlassMenu)
-            { StartVisible = false, HideUntilInWorld = true, Closable = true, Draggable = true },
+            { StartVisible = false, Closable = true, Draggable = true,
+              // Gameplay HUD (gear detail popup for the inspector) — draw only while in-world.
+              ShouldRender = () => _services.ClientState.Phase == GamePhase.World },
             BuildGearDetailRoot(),
             OnClose: () => _gearDetailWindow.SetVisible(false)));
 

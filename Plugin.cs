@@ -47,7 +47,9 @@ public sealed partial class Plugin : IStellarPlugin, Stellar.PluginContracts.IFr
                 // matches the game's menu visual language; the flat Party overlay chrome did not
                 // (user-requested 2026-06-13).
                 Style:       WindowPanelStyle.GlassMenu)
-            { StartVisible = false, HideUntilInWorld = true, Closable = true, Draggable = true,
+            { StartVisible = false, Closable = true, Draggable = true,
+              // Gameplay HUD: inspects in-world entities — draw only while in-world.
+              ShouldRender = () => _services.ClientState.Phase == GamePhase.World,
               // MinWidth 780 (was 580): the gear tab's fixed accessory grid (6×76 + spacing ≈ 466px) +
               // the 260px portrait + paddings needs ≥ ~770px window or the right cards clip under the
               // RectMask2D (ux-ui review 2026-06-13, static arithmetic — the old 580 min predates the
