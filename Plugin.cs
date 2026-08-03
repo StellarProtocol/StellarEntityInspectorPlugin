@@ -19,8 +19,6 @@ public sealed partial class Plugin : IStellarPlugin, Stellar.PluginContracts.IFr
 {
     public string Name => "EntityInspector";
 
-    private const string HarmonyId = "stellar.entity-inspector-plugin";
-
     private readonly IPluginServices _services;
     private IWindowControl _window = null!;
     private IDisposable _inspectItem = null!;
@@ -76,7 +74,7 @@ public sealed partial class Plugin : IStellarPlugin, Stellar.PluginContracts.IFr
 
         _services.Framework.Update += OnUpdate;
 
-        if (VerticalRotationPatch.Install(HarmonyId, _services.Log.Info))
+        if (VerticalRotationPatch.Install(_services.Harmony.Create("vertrot"), _services.Log.Info))
             _services.Log.Info("[EntityInspector] vertical rotation patch installed");
         else
             _services.Log.Warning("[EntityInspector] vertical rotation patch failed — portrait drag will stay clamped");
