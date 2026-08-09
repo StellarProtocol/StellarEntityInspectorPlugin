@@ -19,8 +19,6 @@ public sealed partial class Plugin : IStellarPlugin, Stellar.PluginContracts.IFr
 {
     public string Name => "EntityInspector";
 
-    private const string HarmonyId = "stellar.entity-inspector-plugin";
-
     private readonly IPluginServices _services;
     private IWindowControl _window = null!;
     private IDisposable _inspectItem = null!;
@@ -47,7 +45,10 @@ public sealed partial class Plugin : IStellarPlugin, Stellar.PluginContracts.IFr
                 // matches the game's menu visual language; the flat Party overlay chrome did not
                 // (user-requested 2026-06-13).
                 Style:       WindowPanelStyle.GlassMenu)
-            { StartVisible = false, HideUntilInWorld = true, Closable = true, Draggable = true,
+            { StartVisible = false, Closable = true, Draggable = true,
+              // Gameplay HUD: inspects in-world entities — draw only while in-world and not on a loading screen.
+              ShouldRender = () => _services.ClientState.Phase == GamePhase.World
+                                   && (_services.ClientState.UiState & GameUIState.Loading) == 0,
               // MinWidth 780 (was 580): the gear tab's fixed accessory grid (6×76 + spacing ≈ 466px) +
               // the 260px portrait + paddings needs ≥ ~770px window or the right cards clip under the
               // RectMask2D (ux-ui review 2026-06-13, static arithmetic — the old 580 min predates the
@@ -73,7 +74,7 @@ public sealed partial class Plugin : IStellarPlugin, Stellar.PluginContracts.IFr
 
         _services.Framework.Update += OnUpdate;
 
-        if (VerticalRotationPatch.Install(HarmonyId, _services.Log.Info))
+        if (VerticalRotationPatch.Install(_services.Harmony.Create("vertrot"), _services.Log.Info))
             _services.Log.Info("[EntityInspector] vertical rotation patch installed");
         else
             _services.Log.Warning("[EntityInspector] vertical rotation patch failed — portrait drag will stay clamped");

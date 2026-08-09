@@ -1,6 +1,7 @@
 using System;
 using System.Reflection;
 using HarmonyLib;
+using Stellar.Abstractions.Services;
 
 namespace Stellar.EntityInspector;
 
@@ -15,7 +16,6 @@ namespace Stellar.EntityInspector;
 // ApplyPitch() re-asserts it at 30 Hz (framework tick) as a safety net.
 internal static class VerticalRotationPatch
 {
-    private static Harmony?        _harmony;
     private static Action<string>? _log;
 
     private static bool  _active;
@@ -26,12 +26,11 @@ internal static class VerticalRotationPatch
     private static object?    _cmdRendInst;
     private static FieldInfo? _elevationField;
 
-    internal static bool Install(string harmonyId, Action<string> log)
+    internal static bool Install(Harmony harmony, Action<string> log)
     {
-        _log     = log;
-        _harmony = new Harmony(harmonyId + ".vertrot");
+        _log = log;
 
-        var hostType = FindType("Stellar.Infrastructure.Game.PortraitModelHost");
+        var hostType = StellarInterop.FindType("Stellar.Infrastructure.Game.PortraitModelHost");
         if (hostType == null) { log("[VertRot] PortraitModelHost not found"); return false; }
 
         var orbitMethod = hostType.GetMethod("Orbit",
@@ -41,7 +40,7 @@ internal static class VerticalRotationPatch
 
         try
         {
-            _harmony.Patch(orbitMethod,
+            harmony.Patch(orbitMethod,
                 postfix: new HarmonyMethod(typeof(VerticalRotationPatch), nameof(PostfixOrbit)));
             log("[VertRot] PortraitModelHost.Orbit postfixed");
             return true;
@@ -49,7 +48,8 @@ internal static class VerticalRotationPatch
         catch (Exception ex) { log($"[VertRot] patch failed: {ex.Message}"); return false; }
     }
 
-    internal static void Uninstall() { _harmony?.UnpatchSelf(); _harmony = null; }
+    // Harmony teardown is owned by IHarmonyHost (auto-unpatches on plugin dispose); no manual unpatch here.
+    internal static void Uninstall() { }
 
     internal static void Activate(bool on)
     {
@@ -87,39 +87,17 @@ internal static class VerticalRotationPatch
     private static void ResolveCmd(object instance)
     {
         _cmdResolved = true;
-        var cmdField = FindFieldUp(instance.GetType(), "_cmdRenderer");
+        var cmdField = StellarInterop.FindFieldUp(instance.GetType(), "_cmdRenderer");
         if (cmdField == null) { _log?.Invoke("[VertRot] _cmdRenderer not found on PortraitModelHost"); return; }
 
         _cmdRendInst = cmdField.GetValue(instance);
         if (_cmdRendInst == null) { _cmdResolved = false; return; } // not yet created — retry
 
-        _elevationField = _cmdRendInst.GetType().GetField("_elevation",
-            BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance);
+        _elevationField = StellarInterop.FindFieldUp(_cmdRendInst.GetType(), "_elevation");
 
         if (_elevationField != null)
             _log?.Invoke($"[VertRot] resolved _cmdRenderer._elevation on {_cmdRendInst.GetType().Name}");
         else
             _log?.Invoke($"[VertRot] _elevation not found on {_cmdRendInst.GetType().Name}");
-    }
-
-    private static FieldInfo? FindFieldUp(Type? t, string name)
-    {
-        while (t != null)
-        {
-            var f = t.GetField(name, BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance);
-            if (f != null) return f;
-            t = t.BaseType;
-        }
-        return null;
-    }
-
-    private static Type? FindType(string fullName)
-    {
-        foreach (var asm in AppDomain.CurrentDomain.GetAssemblies())
-        {
-            var t = asm.GetType(fullName);
-            if (t != null) return t;
-        }
-        return null;
     }
 }
