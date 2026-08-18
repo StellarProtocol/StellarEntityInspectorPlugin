@@ -56,7 +56,7 @@ public sealed partial class Plugin
                 new TextElement(() => slot < _imagines.Count ? _imagines[slot].Name : "", Emphasis: true),
                 new TextElement(() => slot < _imagines.Count ? _imagines[slot].Stars : ""),
                 new SpacerElement(),
-                new TextElement(() => "Battle Imagine", MutedCol),
+                new TextElement(() => _loc.T("ei.skill.battleImagine"), MutedCol),
             }, Gap: 6f),
             Stripe: static () => ImagineTint,
             Share: static () => 1f));
@@ -98,8 +98,8 @@ public sealed partial class Plugin
             // system skills that ride the same loadout attr) — those rendered as blank rows with only a
             // Lv·Tier value (user-flagged 2026-06-13). Show the id so nothing is anonymous.
             var name = _services.GameData.Combat.GetSkill(sl.SkillId) is { Name.Length: > 0 } sk
-                ? sk.Name : $"Skill {sl.SkillId}";
-            _skillRows.Add((sl.SkillId, name, $"Lv {sl.Level} · Tier {sl.Tier}"));
+                ? sk.Name : _loc.TFormat("ei.skill.fallback", sl.SkillId);
+            _skillRows.Add((sl.SkillId, name, _loc.TFormat("ei.skill.levelTier", sl.Level, sl.Tier)));
         }
     }
 

@@ -56,7 +56,7 @@ public sealed partial class Plugin
             new TextElement(() => NameLine(), Emphasis: true),
             new TextElement(() => ProfessionLine(), MutedCol),
         }, Gap: 6f),
-        new TextElement(() => $"Level: {LevelLine()}   Ability Score: {AbilityScoreLine()}", MutedCol),
+        new TextElement(() => _loc.TFormat("ei.header.levelAbility", LevelLine(), AbilityScoreLine()), MutedCol),
         new BarElement(HpFraction, new ColorRgba(0.24f, 0.62f, 0.40f, 1f), Label: HpLine),
         // One imagine per line: real imagine names (~28 chars) can never fit two-abreast in the info
         // column, and name/stars as SEPARATE elements means a squeezed name wraps alone while the star
@@ -100,10 +100,10 @@ public sealed partial class Plugin
 
     private HudElement BuildTabBar() => new RowElement(new HudElement[]
     {
-        new ButtonElement(() => "Overview", () => SelectTab(Tab.Overview),  Active: () => _tab == Tab.Overview),
-        new ButtonElement(() => "Gear",     () => SelectTab(Tab.Gear),      Active: () => _tab == Tab.Gear),
-        new ButtonElement(() => "Skills",   () => SelectTab(Tab.SkillBook), Active: () => _tab == Tab.SkillBook),
-        new ButtonElement(() => "Wardrobe", () => SelectTab(Tab.Wardrobe),  Active: () => _tab == Tab.Wardrobe),
+        new ButtonElement(() => _loc.T("ei.tab.overview"), () => SelectTab(Tab.Overview),  Active: () => _tab == Tab.Overview),
+        new ButtonElement(() => _loc.T("ei.tab.gear"),     () => SelectTab(Tab.Gear),      Active: () => _tab == Tab.Gear),
+        new ButtonElement(() => _loc.T("ei.tab.skills"),   () => SelectTab(Tab.SkillBook), Active: () => _tab == Tab.SkillBook),
+        new ButtonElement(() => _loc.T("ei.tab.wardrobe"), () => SelectTab(Tab.Wardrobe),  Active: () => _tab == Tab.Wardrobe),
     }, Gap: 4f);
 
     // Self-only secondary stats; "—" for others (not broadcast). Two rows to stay compact.
@@ -168,7 +168,7 @@ public sealed partial class Plugin
         long profId = AttrOr(AttrProfessionId, socialFallback);
         if (profId <= 0) return "—";
         var prof = _services.GameData.Combat.GetProfession((int)profId);
-        var name = prof is { Name: { Length: > 0 } n } ? n : $"Class {profId}";
+        var name = prof is { Name: { Length: > 0 } n } ? n : _loc.TFormat("ei.header.classFallback", profId);
         // Spec (e.g. "Icicle") from the framework's shared cast-resolved cache (ICombatSpec) — correct once the
         // target has been seen casting; omitted otherwise (the AOI loadout can't disambiguate the two specs).
         var sub = _services.CombatSpec.GetSubProfession(_target);

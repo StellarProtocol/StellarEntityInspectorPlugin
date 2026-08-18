@@ -7,15 +7,22 @@
     <NoWarn>CS8632;CS8765</NoWarn>
     <RootNamespace>Stellar.EntityInspector</RootNamespace>
     <AssemblyName>Stellar.EntityInspector</AssemblyName>
-    <Version>2.0.0</Version>
+    <Version>2.1.0</Version>
     <Deterministic>true</Deterministic>
     <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
   </PropertyGroup>
   <ItemGroup>
-    <PackageReference Include="Stellar.Abstractions" Version="2.0.0" />
+    <!-- i18n P2: consumes IPluginServices.Localization (framework 2.1.0). -->
+    <PackageReference Include="Stellar.Abstractions" Version="2.1.0" />
     <PackageReference Include="Stellar.PluginContracts" Version="2.0.0" />
     <PackageReference Include="Stellar.Plugin.InteropRefs" Version="2.0.0" />
   </ItemGroup>
   <!-- Local overrides: deploy targets, game paths, local framework refs — all in Local.props (gitignored) -->
   <Import Project="$(MSBuildThisFileDirectory)Local.props" Condition="Exists('$(MSBuildThisFileDirectory)Local.props')" />
+  <ItemGroup>
+    <EmbeddedResource Include="Lang/en.json" LogicalName="Stellar.EntityInspector.Lang.en.json" />
+    <EmbeddedResource Include="Lang/ja.json" LogicalName="Stellar.EntityInspector.Lang.ja.json" />
+    <EmbeddedResource Include="Lang/th.json" LogicalName="Stellar.EntityInspector.Lang.th.json" />
+    <EmbeddedResource Include="Lang/id.json" LogicalName="Stellar.EntityInspector.Lang.id.json" />
+  </ItemGroup>
 </Project>
