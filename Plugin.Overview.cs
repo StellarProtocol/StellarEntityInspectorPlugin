@@ -16,17 +16,17 @@ public sealed partial class Plugin
     // (stat id to display, paired flat rating id or 0 — rating renders as a trailing "(N)").
     private static readonly (string Title, (int Id, int RatingId)[] Rows)[] OverviewSections =
     {
-        ("Core",      new[] { (11330, 0), (11340, 0), (11320, 0), (11350, 0), (11360, 0) }),
-        ("Primary",   new[] { (11010, 0), (11020, 0), (11030, 0), (11040, 0) }),
-        ("Secondary", new[] { (11710, 11110), (11930, 11120), (11780, 11130),
+        ("ei.section.core",      new[] { (11330, 0), (11340, 0), (11320, 0), (11350, 0), (11360, 0) }),
+        ("ei.section.primary",   new[] { (11010, 0), (11020, 0), (11030, 0), (11040, 0) }),
+        ("ei.section.secondary", new[] { (11710, 11110), (11930, 11120), (11780, 11130),
                               (11940, 11140), (11950, 11150), (11970, 11170) }),
-        ("Offense",   new[] { (12510, 0), (12530, 0), (12550, 0), (12570, 0), (12590, 0), (12610, 0),
+        ("ei.section.offense",   new[] { (12510, 0), (12530, 0), (12550, 0), (12570, 0), (12590, 0), (12610, 0),
                               (12630, 0), (11370, 0), (11380, 0), (11390, 0), (11400, 0), (11720, 0),
                               (11730, 0), (11740, 0), (11760, 0), (11750, 0), (11910, 0), (11830, 0) }),
-        ("Defense",   new[] { (12520, 0), (12540, 0), (12560, 0), (12580, 0), (12600, 0), (12620, 0),
+        ("ei.section.defense",   new[] { (12520, 0), (12540, 0), (12560, 0), (12580, 0), (12600, 0), (12620, 0),
                               (12640, 0), (12660, 0), (12680, 0), (13400, 0) }),
-        ("Healing & Shields", new[] { (11790, 0), (11800, 0), (11810, 0), (11820, 0), (12720, 0), (12740, 0) }),
-        ("Utility",   new[] { (10200, 0), (10210, 0), (10220, 0), (10240, 0), (10250, 0), (10260, 0),
+        ("ei.section.healingShields", new[] { (11790, 0), (11800, 0), (11810, 0), (11820, 0), (12720, 0), (12740, 0) }),
+        ("ei.section.utility",   new[] { (10200, 0), (10210, 0), (10220, 0), (10240, 0), (10250, 0), (10260, 0),
                               (10230, 0), (10270, 0), (20010, 0), (20020, 0) }),
     };
 
@@ -59,7 +59,7 @@ public sealed partial class Plugin
         return new ColumnElement(new HudElement[]
         {
             new ConditionalElement(() => _isRemote, new TextElement(
-                () => "Detailed stats sync only while this player is near you.", MutedCol)),
+                () => _loc.T("ei.overview.syncNote"), MutedCol)),
             new ScrollElement(new ListElement(() => _ovLabels.Count, slots), 360f),
         }, Gap: 6f);
     }
@@ -92,18 +92,18 @@ public sealed partial class Plugin
     {
         if (_socialSnap is not { Identity: var id }) return;
         if (id.Guild.Length == 0 && id.PartySize == 0 && id.MasterScore == 0) return;
-        AddSectionHeader("Identity");
-        if (id.Guild.Length > 0) { _ovLabels.Add("Guild"); _ovValues.Add(id.Guild); }
+        AddSectionHeader("ei.section.identity");
+        if (id.Guild.Length > 0) { _ovLabels.Add(_loc.T("ei.field.guild")); _ovValues.Add(id.Guild); }
         if (id.PartySize > 0)
-        { _ovLabels.Add("Party"); _ovValues.Add(id.PartySize.ToString(CultureInfo.InvariantCulture) + " members"); }
+        { _ovLabels.Add(_loc.T("ei.field.party")); _ovValues.Add(_loc.TFormat("ei.field.members", id.PartySize)); }
         if (id.MasterScore > 0)
-        { _ovLabels.Add("Master Score"); _ovValues.Add(id.MasterScore.ToString("N0", CultureInfo.InvariantCulture)); }
+        { _ovLabels.Add(_loc.T("ei.field.masterScore")); _ovValues.Add(id.MasterScore.ToString("N0", CultureInfo.InvariantCulture)); }
     }
 
     private void AddSectionHeader(string title)
     {
         if (_ovLabels.Count >= MaxOverviewRows) return;
-        _ovLabels.Add(title); _ovValues.Add("");        // empty value = header row (accent colour)
+        _ovLabels.Add(_loc.T(title)); _ovValues.Add("");        // empty value = header row (accent colour)
     }
 
     private void AddStatRow(int id, int ratingId)
@@ -128,7 +128,7 @@ public sealed partial class Plugin
         var v = TargetVitals();
         if (v.IsKnown && v.MaxHp > 0)
         {
-            _ovLabels.Add(_services.GameData.Combat.GetAttribute(11320)?.Name ?? "Max HP");
+            _ovLabels.Add(_services.GameData.Combat.GetAttribute(11320)?.Name ?? _loc.T("ei.field.maxHp"));
             _ovValues.Add(v.MaxHp.ToString("N0", CultureInfo.InvariantCulture));
             return;
         }
@@ -164,7 +164,7 @@ public sealed partial class Plugin
             {
                 var id = baseId + e * 10;
                 if (!TryAttr(id, out var raw) || raw == 0) continue;
-                if (!headerAdded) { AddSectionHeader("Elemental"); headerAdded = true; }
+                if (!headerAdded) { AddSectionHeader("ei.section.elemental"); headerAdded = true; }
                 if (_ovLabels.Count >= MaxOverviewRows) return;
                 var info = _services.GameData.Combat.GetAttribute(id);
                 _ovLabels.Add(info is { Name.Length: > 0 } a ? a.Name : $"Attr{id} {suffix}");

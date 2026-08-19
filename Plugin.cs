@@ -20,6 +20,7 @@ public sealed partial class Plugin : IStellarPlugin, Stellar.PluginContracts.IFr
     public string Name => "EntityInspector";
 
     private readonly IPluginServices _services;
+    private readonly ILocalization _loc;
     private IWindowControl _window = null!;
     private IDisposable _inspectItem = null!;
     private IDisposable _inspectAction = null!;
@@ -32,12 +33,13 @@ public sealed partial class Plugin : IStellarPlugin, Stellar.PluginContracts.IFr
     public Plugin(IPluginServices services)
     {
         _services = services;
+        _loc = services.Localization;
         _services.Log.Info("[EntityInspector] plugin constructed");
 
         _window = _services.Windows.Register(new WindowRegistration(
             new WindowSpec(
                 Id:          "entityinspector.main",
-                Title:       "Entity Inspector",
+                Title:       _loc.T("ei.window.title"),
                 DefaultRect: new WindowRect(80f, 80f, 820f, 600f),
                 Category:    WindowCategory.HUD,
                 // GlassMenu (was Party): the inspector is a full menu window like DataInspector /

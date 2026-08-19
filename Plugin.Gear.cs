@@ -52,7 +52,7 @@ public sealed partial class Plugin
         // Far players with NO data at all (no broadcast, no social gear) get the hint instead of a
         // grid of empty slots; once the social fallback fills cards the hint vanishes.
         new ConditionalElement(() => _isRemote && !_gearHasData, new TextElement(
-            () => "Equipment appears once you've been near this player.", MutedCol)),
+            () => _loc.T("ei.gear.emptyNote"), MutedCol)),
         BuildWeaponCard(),
         BuildGearGrid(first: 1, count: 4, iconPx: 36, cellW: 88f, cellH: 84f),
         BuildGearGrid(first: 5, count: 6, iconPx: 24, cellW: 76f, cellH: 70f),

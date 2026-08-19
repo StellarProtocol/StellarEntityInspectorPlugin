@@ -31,7 +31,7 @@ public sealed partial class Plugin
         => _services.Windows.Register(new WindowRegistration(
             new WindowSpec(
                 Id:          "entityinspector.geardetail",
-                Title:       "Item Detail",
+                Title:       _loc.T("ei.gd.title"),
                 DefaultRect: new WindowRect(120f, 120f, DetailW, 260f),
                 Category:    WindowCategory.HUD,
                 Style:       WindowPanelStyle.GlassMenu)
@@ -93,20 +93,20 @@ public sealed partial class Plugin
         AddGd(card.Slot, " ");   // slot header; GS/refine/req-level get their own labelled rows below
         if (row is { } r)
         {
-            AddGd("GS", r.Gs.ToString("N0", CultureInfo.InvariantCulture));
+            AddGd(_loc.T("ei.gd.gs"), r.Gs.ToString("N0", CultureInfo.InvariantCulture));
             // Wear REQUIREMENT (table data) — labelled explicitly; rendered as a bare "Lv.45" on the
             // card it read as strengthen level (caps at 30), user-flagged in-world 2026-06-13.
-            if (r.WearLevel > 1) AddGd("Req. level", r.WearLevel.ToString(CultureInfo.InvariantCulture));
+            if (r.WearLevel > 1) AddGd(_loc.T("ei.gd.reqLevel"), r.WearLevel.ToString(CultureInfo.InvariantCulture));
             if (inst is { } pi && pi.Perfection.Max > 0)
-                AddGd("Perfection", $"{pi.Perfection.Value:N0}/{pi.Perfection.Max:N0}");
+                AddGd(_loc.T("ei.gd.perfection"), $"{pi.Perfection.Value:N0}/{pi.Perfection.Max:N0}");
             else if (r.PerfectCap > 0)
-                AddGd("Max perfection", r.PerfectCap.ToString("N0", CultureInfo.InvariantCulture));
-            if (inst is { RefineLevel: > 0 } ri) AddGd("Refine", ri.RefineLevel.ToString(CultureInfo.InvariantCulture));
+                AddGd(_loc.T("ei.gd.maxPerfection"), r.PerfectCap.ToString("N0", CultureInfo.InvariantCulture));
+            if (inst is { RefineLevel: > 0 } ri) AddGd(_loc.T("ei.gd.refine"), ri.RefineLevel.ToString(CultureInfo.InvariantCulture));
             AddBasicSection(r, inst);
             AddAdvancedSection(r, inst);
         }
         AddEffectSection(inst);
-        if (!IsSelf) AddGd("Their rolls / refine / gem are per-instance — not public.", " ");
+        if (!IsSelf) AddGd(_loc.T("ei.gd.notPublicRolls"), " ");
     }
 
     private void AddGd(string label, string value)
@@ -125,7 +125,7 @@ public sealed partial class Plugin
     // dumping every tier repeated the same attrs 3× (user-flagged in-world 2026-06-13).
     private void AddBasicSection(Abstractions.Domain.GameData.EquipRowInfo row, GearInstance? inst)
     {
-        AddGd("Basic Attributes", "");
+        AddGd(_loc.T("ei.gd.basicAttrs"), "");
         if (inst is { Attrs.Basic.Count: > 0 } pi) { AddRollRows(pi.Attrs.Basic, marker: false); return; }
         if (row.BasicAttrLibIds.Length == 0) return;
         foreach (var e in BasicLibEntries(row))
@@ -152,17 +152,17 @@ public sealed partial class Plugin
 
         if (inst is { Attrs.Advanced.Count: > 0 } pi)
         {
-            AddGd("Advanced Attributes — rolled", "");
+            AddGd(_loc.T("ei.gd.advRolled"), "");
             AddRollRows(pi.Attrs.Advanced, marker: true);
-            if (pi.Attrs.Recast.Count > 0) { AddGd("Recast", ""); AddRollRows(pi.Attrs.Recast, marker: false); }
-            if (pi.Attrs.Rare.Count > 0) { AddGd("Rare", ""); AddRollRows(pi.Attrs.Rare, marker: false); }
+            if (pi.Attrs.Recast.Count > 0) { AddGd(_loc.T("ei.gd.recast"), ""); AddRollRows(pi.Attrs.Recast, marker: false); }
+            if (pi.Attrs.Rare.Count > 0) { AddGd(_loc.T("ei.gd.rare"), ""); AddRollRows(pi.Attrs.Rare, marker: false); }
             return;
         }
-        AddGd("Advanced Attributes — possible rolls", "");
+        AddGd(_loc.T("ei.gd.advPossible"), "");
         // v2 (spec/school) rolls need the target's talent school; if we couldn't resolve their spec,
         // say so honestly rather than show wrong ranges.
         if (row.AdvancedLibVersion == 2 && _targetTalentSchool == 0)
-        { AddGd("Spec-dependent rolls (spec unknown — get nearer / open their card).", " "); return; }
+        { AddGd(_loc.T("ei.gd.specUnknown"), " "); return; }
         // One line per lib slot with THAT lib's filtered range (ZDPS-parity). The old widened cross-lib
         // union rendered every attr with one giant identical range (user-flagged 2026-06-13).
         foreach (var libId in row.AdvancedAttrLibIds)
@@ -171,8 +171,8 @@ public sealed partial class Plugin
         // Recast (reforge) is a runtime player choice stored per-instance with no item-table pool, so —
         // unlike advanced rolls — it has no "possible range" to show for others. State that explicitly so
         // its absence reads as a data limit, not a missing section (user-flagged 2026-06-13).
-        AddGd("Recast", "");
-        AddGd("Reforge is per-instance — not broadcast.", " ");
+        AddGd(_loc.T("ei.gd.recast"), "");
+        AddGd(_loc.T("ei.gd.reforgeNote"), " ");
     }
 
     // Self rolls arrive as (lib ROW id, percentile 0–100): each row expands to one or more table
@@ -191,7 +191,7 @@ public sealed partial class Plugin
             if (entries.Count == 0)
             {
                 // Table not loaded yet / unknown row — show the raw pair rather than nothing.
-                AddGd($"Roll {roll.LibRowId}", roll.Percentile.ToString(CultureInfo.InvariantCulture) + "%");
+                AddGd(_loc.TFormat("ei.gd.roll", roll.LibRowId), roll.Percentile.ToString(CultureInfo.InvariantCulture) + "%");
                 continue;
             }
             // ▲ (not the game's 👍 emoji) — legacy uGUI dynamic fonts have no reliable emoji
@@ -252,9 +252,9 @@ public sealed partial class Plugin
 
     private void AddEffectSection(GearInstance? inst)
     {
-        AddGd("Effect", "");
-        if (!IsSelf) { AddGd("Socketed gem isn't broadcast for others.", " "); return; }
-        if (inst?.Enchant is not { } en) { AddGd("No gem socketed.", " "); return; }
+        AddGd(_loc.T("ei.gd.effect"), "");
+        if (!IsSelf) { AddGd(_loc.T("ei.gd.gemNotBroadcast"), " "); return; }
+        if (inst?.Enchant is not { } en) { AddGd(_loc.T("ei.gd.noGem"), " "); return; }
         // Resolve the wire (typeId, enchant_level) → gem item id whose NAME carries the display level
         // ("Crimson Foxen Sigil Lv.2") — the wire enchant_level is an internal index, not the shown level
         // (it read "Lv 8" for an in-game "Lv.2", user-flagged 2026-06-13). Fall back to the old display
@@ -268,7 +268,7 @@ public sealed partial class Plugin
             return;
         }
         var name = _services.GameData.Inventory.GetItem(en.ItemTypeId)?.Name ?? $"Enchant {en.ItemTypeId}";
-        AddGd(name, $"Lv {en.Level}");
+        AddGd(name, _loc.TFormat("ei.gd.lv", en.Level));
     }
 
     private GearInstance? SelfInstanceOf(GearCard card)
