@@ -28,7 +28,19 @@ public sealed partial class Plugin
     // (identity + stat strip, tab bar, per-tab body). The right body fills leftover height (Resizable window).
     private HudElement BuildRoot() => new RowElement(new HudElement[]
     {
-        BuildPortrait(),                       // Plugin.Portrait.cs — tall left pane (self 3D / placeholder)
+        // Left pane: the 3D portrait (flex-fills the pane height via its inherited flexibleHeight) with a
+        // "Show Weapon" toggle pinned beneath it, shown only for a player target. The toggle has no flex, so all
+        // leftover vertical space still goes to the portrait — it fills the pane as before, toggle sits below.
+        new ColumnElement(new HudElement[]
+        {
+            BuildPortrait(),                   // Plugin.Portrait.cs — tall left pane (self 3D / placeholder)
+            new ConditionalElement(() => _target.IsPlayer,
+                new RowElement(new HudElement[]
+                {
+                    new ToggleElement(() => "", () => _showWeapon, SetShowWeapon),
+                    new TextElement(() => _loc.T("ei.portrait.showWeapon"), MutedCol),
+                }, Gap: 6f)),
+        }, Gap: 6f),
         new SpacerElement(Width: 10f),
         new ColumnElement(new HudElement[]
         {

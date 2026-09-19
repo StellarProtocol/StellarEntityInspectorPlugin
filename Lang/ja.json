@@ -27,6 +27,7 @@
   "ei.header.classFallback": "クラス {0}",
   "ei.header.levelAbility": "レベル: {0}   戦闘力: {1}",
   "ei.overview.syncNote": "詳細ステータスはこのプレイヤーが近くにいる間のみ同期されます。",
+  "ei.portrait.showWeapon": "武器を表示",
   "ei.section.core": "コア",
   "ei.section.defense": "防御",
   "ei.section.elemental": "属性",
