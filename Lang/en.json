@@ -27,6 +27,7 @@
   "ei.header.classFallback": "Class {0}",
   "ei.header.levelAbility": "Level: {0}   Ability Score: {1}",
   "ei.overview.syncNote": "Detailed stats sync only while this player is near you.",
+  "ei.portrait.showWeapon": "Show Weapon",
   "ei.section.core": "Core",
   "ei.section.defense": "Defense",
   "ei.section.elemental": "Elemental",

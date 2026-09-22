@@ -27,6 +27,11 @@ public sealed partial class Plugin : IStellarPlugin, Stellar.PluginContracts.IFr
 
     private EntityId _target = EntityId.None;
     private Tab _tab = Tab.Overview;
+    private bool _showWeapon;   // portrait weapon visibility (persisted: config section "portrait", key "showWeapon")
+
+    // Portrait lighting is hardcoded to the "Vivid" custom profile (preset 4) — the picker was removed, so there is
+    // no config for lighting anymore. (See PortraitModelHost.Lighting.cs: 0..4 = the custom profiles; 4 = Vivid.)
+    private const int VividPreset = 4;
 
     private enum Tab { Overview, Gear, SkillBook, Wardrobe }
 
@@ -35,6 +40,13 @@ public sealed partial class Plugin : IStellarPlugin, Stellar.PluginContracts.IFr
         _services = services;
         _loc = services.Localization;
         _services.Log.Info("[EntityInspector] plugin constructed");
+
+        // Restore the portrait weapon-visibility choice and apply it to the (global) portrait service up front.
+        _showWeapon = _services.Config.GetSection("portrait").Get<bool>("showWeapon", false);
+        _services.EntityPortrait.ShowWeapon = _showWeapon;
+
+        // Portrait lighting is fixed to Vivid (no picker, no config) — always apply it up front.
+        _services.EntityPortrait.LightPreset = VividPreset;
 
         _window = _services.Windows.Register(new WindowRegistration(
             new WindowSpec(
@@ -99,6 +111,8 @@ public sealed partial class Plugin : IStellarPlugin, Stellar.PluginContracts.IFr
         // Start the portrait directly (do NOT gate on _window.IsShown — it isn't necessarily true
         // synchronously right after SetVisible, which left the portrait box blank).
         _services.EntityPortrait.Show(entity);
+        _services.EntityPortrait.ShowWeapon = _showWeapon;   // re-assert the (global) choice for the new subject
+        _services.EntityPortrait.LightPreset = VividPreset;  // re-assert the fixed Vivid lighting for the new subject
     }
 
     private void CloseInspector()
@@ -246,5 +260,16 @@ public sealed partial class Plugin : IStellarPlugin, Stellar.PluginContracts.IFr
         _tab = t;
         _gearDetailWindow.SetVisible(false);           // popup belongs to the Gear tab's context
         RebuildSnapshots();
+    }
+
+    // Portrait "Show Weapon" toggle: flip the (global) portrait service — it re-asserts the weapon exclusion on
+    // the live model immediately — and persist the choice so it survives a restart.
+    private void SetShowWeapon(bool v)
+    {
+        _showWeapon = v;
+        _services.EntityPortrait.ShowWeapon = v;
+        var s = _services.Config.GetSection("portrait");
+        s.Set("showWeapon", v);
+        s.Save();
     }
 }

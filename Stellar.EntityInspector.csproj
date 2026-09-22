@@ -7,13 +7,14 @@
     <NoWarn>CS8632;CS8765</NoWarn>
     <RootNamespace>Stellar.EntityInspector</RootNamespace>
     <AssemblyName>Stellar.EntityInspector</AssemblyName>
-    <Version>2.1.0</Version>
+    <Version>2.2.0</Version>
     <Deterministic>true</Deterministic>
     <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
   </PropertyGroup>
   <ItemGroup>
-    <!-- i18n P2: consumes IPluginServices.Localization (framework 2.1.0). -->
-    <PackageReference Include="Stellar.Abstractions" Version="2.1.0" />
+    <!-- 2.8.3: IEntityPortrait.ShowWeapon/LightPreset + BarElement.LabelColor (portrait weapon toggle,
+         fixed lighting, centered HP label). Also carries IPluginServices.Localization (since 2.1.0). -->
+    <PackageReference Include="Stellar.Abstractions" Version="2.8.3" />
     <PackageReference Include="Stellar.PluginContracts" Version="2.0.0" />
     <PackageReference Include="Stellar.Plugin.InteropRefs" Version="2.0.0" />
   </ItemGroup>
