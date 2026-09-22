@@ -62,14 +62,22 @@ public sealed partial class Plugin
     // Identity header: [prof icon] Name  Class / Level + Ability Score line / HP bar / imagine chips / stat strip.
     private HudElement BuildIdentity() => new ColumnElement(new HudElement[]
     {
+        // Icon + name + class all on ONE line, rendered as a SINGLE rich-text element next to the icon.
+        // Two auto-sized text elements (bold name + muted class) competed for width inside the Row's
+        // HorizontalLayoutGroup: when a long name+class overran the row the HLG shrank the name's rect and
+        // Unity computed its preferredHeight as two lines, so the whole row grew to two lines tall and the
+        // single-line icon/class centred against it → misaligned. One element = nothing to shrink; the bold
+        // name + muted class live in the string via rich text (uGUI Text.supportRichText defaults true — this
+        // plain TextElement takes the legacy Text path, which never disables it). NoWrap overflows/clips at
+        // the edge so the row stays exactly one line regardless of name/class length.
         new RowElement(new HudElement[]
         {
             new GameTextureElement(ProfIcon, 18, 18, () => _profUv),
-            new TextElement(() => NameLine(), Emphasis: true),
-            new TextElement(() => ProfessionLine(), MutedCol),
+            new TextElement(() => NameClassLine(), NoWrap: true),
         }, Gap: 6f),
         new TextElement(() => _loc.TFormat("ei.header.levelAbility", LevelLine(), AbilityScoreLine()), MutedCol),
-        new BarElement(HpFraction, new ColorRgba(0.24f, 0.62f, 0.40f, 1f), Label: HpLine),
+        new BarElement(HpFraction, new ColorRgba(0.24f, 0.62f, 0.40f, 1f), Label: HpLine)
+            { LabelInside = true, Height = 20f, LabelColor = new ColorRgba(1f, 1f, 1f, 1f) },
         // One imagine per line: real imagine names (~28 chars) can never fit two-abreast in the info
         // column, and name/stars as SEPARATE elements means a squeezed name wraps alone while the star
         // block stays intact (ux-ui review recommendation, measured).
@@ -136,6 +144,19 @@ public sealed partial class Plugin
     }
 
     // ---- identity ----
+
+    // Bold name + muted-grey class as one rich-text string (see BuildIdentity for why they can't be two
+    // elements). Muted colour is DERIVED from MutedCol() so it tracks the theme exactly — same grey the rest
+    // of the header uses. NameLine()/ProfessionLine() are reused unchanged; the markup is the only addition.
+    private string NameClassLine()
+        => $"<b>{NameLine()}</b>   <color={MutedHex()}>{ProfessionLine()}</color>";
+
+    private string MutedHex()
+    {
+        var c = MutedCol() ?? new ColorRgba(0.66f, 0.70f, 0.73f, 1f);
+        int r = (int)(c.R * 255f + 0.5f), g = (int)(c.G * 255f + 0.5f), b = (int)(c.B * 255f + 0.5f);
+        return $"#{r:X2}{g:X2}{b:X2}";
+    }
 
     private string NameLine()
     {
