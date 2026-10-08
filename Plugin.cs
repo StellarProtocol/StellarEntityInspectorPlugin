@@ -33,7 +33,7 @@ public sealed partial class Plugin : IStellarPlugin, Stellar.PluginContracts.IFr
     // no config for lighting anymore. (See PortraitModelHost.Lighting.cs: 0..4 = the custom profiles; 4 = Vivid.)
     private const int VividPreset = 4;
 
-    private enum Tab { Overview, Gear, SkillBook, Wardrobe }
+    private enum Tab { Overview, Gear, SkillBook, Wardrobe, Location }
 
     public Plugin(IPluginServices services)
     {
@@ -123,6 +123,7 @@ public sealed partial class Plugin : IStellarPlugin, Stellar.PluginContracts.IFr
         _services.EntityPortrait.Hide();       // release the portrait model when hidden
         VerticalRotationPatch.Activate(false);
         UnsubscribeSelfStats();                // stop the self-stat poll set while the window is closed
+        DropLocationBase();                    // free the cached map art (up to 16 MB) while closed
     }
 
     public void Dispose()
@@ -133,6 +134,7 @@ public sealed partial class Plugin : IStellarPlugin, Stellar.PluginContracts.IFr
         _inspectItem.Dispose();
         _inspectAction.Dispose();
         UnsubscribeSelfStats();
+        DisposeLocation();
         _gearDetailWindow.Remove();
         _window.Remove();
     }
@@ -184,6 +186,7 @@ public sealed partial class Plugin : IStellarPlugin, Stellar.PluginContracts.IFr
             if (tab == "gear") _tab = Tab.Gear;
             else if (tab == "skills") _tab = Tab.SkillBook;
             else if (tab == "wardrobe") _tab = Tab.Wardrobe;
+            else if (tab == "location") _tab = Tab.Location;
             _services.Log.Info($"[EntityInspector] inspect-self.flag consumed — opening self (tab={_tab})");
             Open(self);
         }
@@ -215,6 +218,7 @@ public sealed partial class Plugin : IStellarPlugin, Stellar.PluginContracts.IFr
             _socialSnap = null; _isRemote = false; _targetTalentSchool = 0;
             _ovLabels.Clear(); _ovValues.Clear(); _imagines.Clear(); _skillRows.Clear(); _wardrobeRows.Clear();
             _lastSkillSnapshot = null; _lastFashionSnapshot = null;   // keep the dirty checks honest after a clear
+            _locState = LocState.None;
             System.Array.Clear(_gearCards, 0, _gearCards.Length);
             return;
         }
@@ -229,6 +233,7 @@ public sealed partial class Plugin : IStellarPlugin, Stellar.PluginContracts.IFr
             case Tab.Gear:      RebuildGear();      break;
             case Tab.SkillBook: RebuildSkillBook(); break;
             case Tab.Wardrobe:  RebuildWardrobe();  break;
+            case Tab.Location:  RebuildLocation();  break;
         }
     }
 

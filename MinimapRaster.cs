@@ -35,6 +35,10 @@ internal sealed class MinimapRaster : IDisposable
     // Boxed texture for GameTextureElement (created lazily on the main thread at first upload).
     public object? Texture => _tex;
 
+    // Raw RGBA32 buffer, Texture2D row order (byte row 0 = BOTTOM). The Location tab resamples the game's map art
+    // straight into it (bottom-origin on both sides, so no flip) before drawing the markers via the primitives.
+    public byte[] Pixels => _px;
+
     public void Upload()
     {
         _tex ??= new Texture2D(Size, Size, TextureFormat.RGBA32, false)
