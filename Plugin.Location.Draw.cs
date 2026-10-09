@@ -91,46 +91,44 @@ public sealed partial class Plugin
         float k = side / span;
         float sx = ox + (su.x - left) * k, sy = oy + side - (su.y - bottom) * k;
         float tx = ox + (tu.x - left) * k, ty = oy + side - (tu.y - bottom) * k;
-        // Marker sizes were tuned on the old fixed 320 px square, so they scale with the square's side. Full view is
-        // ~6 m per px at 400, so a zoom-sized marker is a speck — scale both up further and give the target a soft
-        // halo (faint amber disc + ring) so it's findable on busy art; self gets a fainter, smaller one.
-        float m = Math.Clamp(side / 320f, 0.6f, 2.5f) * (full ? 1.35f : 1f);
+        // Markers are a CONSTANT on-screen size — the raster maps ~1:1 to screen px (the host stretches it to a pane
+        // it was sized to), so fixed raster px = fixed screen px whatever the pane size or zoom/full view. (They used
+        // to scale with side/320 plus a 1.35× full-view boost: on a ~700 px pane that made the target halo a ~44 px
+        // blob.) Full view adds only a thin, faint ring around the target — a small location ping, not a disc.
         if (drawSelf)
         {
-            if (full) Halo(_locRaster, sx, sy, 8f * m, LocSelfCol, 0.5f);
-            _locRaster.FillCircle(sx, sy, 6.5f * m, LocRimCol, 0.85f);
-            _locRaster.FillCircle(sx, sy, 4.5f * m, LocSelfCol, 1f);
+            _locRaster.FillCircle(sx, sy, 5f, LocRimCol, 0.85f);
+            _locRaster.FillCircle(sx, sy, 3.5f, LocSelfCol, 1f);
         }
-        if (full) Halo(_locRaster, tx, ty, 15f * m, LocTargetCol, 1f);
-        if (arrow) DrawArrow(_locRaster, tx, ty, yaw, m);
+        if (full) Ping(_locRaster, tx, ty, 9f, LocTargetCol);
+        if (arrow) DrawArrow(_locRaster, tx, ty, yaw);
         else
         {
             // Social (far) location: no facing on the wire (dir is always 0) — a plain amber dot, larger than yours.
-            _locRaster.FillCircle(tx, ty, 8f * m, LocRimCol, 0.85f);
-            _locRaster.FillCircle(tx, ty, 6f * m, LocTargetCol, 1f);
+            _locRaster.FillCircle(tx, ty, 6.75f, LocRimCol, 0.85f);
+            _locRaster.FillCircle(tx, ty, 5f, LocTargetCol, 1f);
         }
         _locRaster.Upload();
     }
 
-    // Soft "find me" halo: translucent disc, then a dark-backed ring at radius rad (the dark under-stroke keeps the
-    // ring visible on bright art, the colour stroke on dark art). `a` scales the whole thing (self is fainter).
-    private static void Halo(MinimapRaster r, float cx, float cy, float rad, ColorRgba c, float a)
+    // Full-view "find me" ping: a thin ring only (no filled disc — that's what read as a blob). A faint dark
+    // under-stroke keeps it visible on bright art, the low-alpha colour stroke on dark art. Drawn under the marker.
+    private static void Ping(MinimapRaster r, float cx, float cy, float rad, ColorRgba c)
     {
-        r.FillCircle(cx, cy, rad, c, 0.16f * a);
-        r.StrokeCircle(cx, cy, rad, 3.5f, LocRimCol, 0.55f * a);
-        r.StrokeCircle(cx, cy, rad, 1.8f, c, 0.85f * a);
+        r.StrokeCircle(cx, cy, rad, 2.2f, LocRimCol, 0.35f);
+        r.StrokeCircle(cx, cy, rad, 1.2f, c, 0.55f);
     }
 
     // Facing arrow. Yaw = Unity-style degrees (0 = +Z/north, clockwise toward +X/east seen from above) on a north-up,
     // east-right map with canvas y down ⇒ direction (sin, −cos). ⚠ Needs visual confirmation in-game.
-    // `scale` enlarges the whole arrow (raster size / full-map view).
-    private static void DrawArrow(MinimapRaster r, float cx, float cy, float yawDeg, float scale)
+    // Fixed size in raster px (= screen px), same in zoom and full view.
+    private static void DrawArrow(MinimapRaster r, float cx, float cy, float yawDeg)
     {
         float a = yawDeg * (MathF.PI / 180f);
         float dx = MathF.Sin(a), dy = -MathF.Cos(a), px = -dy, py = dx;
         for (int pass = 0; pass < 2; pass++)
         {
-            float s = (pass == 0 ? 1.35f : 1f) * scale;   // dark rim pass first, then the amber body
+            float s = pass == 0 ? 1.35f : 1f;   // dark rim pass first, then the amber body
             float tipX = cx + dx * 11f * s, tipY = cy + dy * 11f * s;
             float bx = cx - dx * 6f * s, by = cy - dy * 6f * s;
             r.FillTriangle(tipX, tipY, bx + px * 7f * s, by + py * 7f * s, bx - px * 7f * s, by - py * 7f * s,
