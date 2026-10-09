@@ -8,7 +8,7 @@ using UnityEngine;
 namespace Stellar.EntityInspector;
 
 // Location tab — the GAME'S OWN region map art cropped around the inspected player (+ you), with markers drawn on a
-// plugin-owned CPU raster (MinimapRaster) shown through GameTextureElement. Refreshed on the 10 Hz snapshot tick (only
+// plugin-owned CPU raster (MinimapRaster) shown through RenderTextureHostElement. Refreshed on the 10 Hz snapshot tick (only
 // while the window is shown and this tab is selected); the raster redraws only when a marker moved or the base changed.
 // Where the TARGET is comes from, in order:
 //   (a) IEntityTransforms — in AOI ⇒ in our scene: live pos + yaw, art = the live radar's (LocationMapSource);
@@ -42,19 +42,46 @@ public sealed partial class Plugin
     private float _lastSu = float.NaN, _lastSv, _lastTu, _lastTv, _lastYaw;
     private int _lastBaseVer = -1;
     private ILocationBase? _lastBaseSrc;
-    private bool _lastDrawSelf, _lastArrow;
+    private bool _lastDrawSelf, _lastArrow, _lastFull;
     private bool _locWarned;
 
+    // Full map (whole region art) vs zoom (crop around the markers). Persisted: config "location" / "fullMap".
+    private bool _locFullMap = true;
+
+    // The map is a RenderTextureHostElement inside a Fill conditional: the host stretches to the column width and
+    // takes the leftover body height (flexibleHeight), so it scales with the window instead of overflowing at a fixed
+    // size. Its OnViewportResize drives the raster size (Plugin.Location.Draw.cs). No drag/scroll/pan handlers.
+    // Toggle row + zone lines are fixed-height around it; at MinHeight 360 the host shrinks to its LocPaneMin.
     private HudElement BuildLocationBody() => new ColumnElement(new HudElement[]
     {
         new ConditionalElement(() => _locState != LocState.Ok, new TextElement(LocStateLine, MutedCol)),
+        // The label names the ACTION (what a click switches to), not the current view.
         new ConditionalElement(() => _locState == LocState.Ok,
-            new GameTextureElement(() => _locRaster?.Texture, MapPx, MapPx)),
+            new RowElement(new HudElement[]
+            {
+                new ButtonElement(() => _loc.T(_locFullMap ? "ei.location.zoomIn" : "ei.location.fullMap"),
+                    ToggleLocationFullMap),
+                new SpacerElement(),
+            })),
+        new ConditionalElement(() => _locState == LocState.Ok,
+            new RenderTextureHostElement(() => _locRaster?.Texture, LocPaneMin, LocPaneMin,
+                OnViewportResize: OnLocationPaneResize),
+            Fill: true),
         // Zone + age stay visible without art ("No map for this area" still says WHERE they are).
         new ConditionalElement(() => _locZone.Length > 0 && ShowsZone(), new TextElement(() => _locZone)),
         new ConditionalElement(() => _locAge.Length > 0 && ShowsZone(), new TextElement(() => _locAge, MutedCol)),
         new ConditionalElement(() => _locState == LocState.Ok && _locLine.Length > 0, new TextElement(() => _locLine)),
     }, Gap: 6f);
+
+    private void ToggleLocationFullMap()
+    {
+        _locFullMap = !_locFullMap;
+        var s = _services.Config.GetSection("location");
+        s.Set("fullMap", _locFullMap);
+        s.Save();
+        _lastSu = float.NaN;   // force the redraw even if nothing moved
+        RebuildLocation();     // re-render now, not on the next 10 Hz tick
+    }
 
     private bool ShowsZone() => _locState is LocState.Ok or LocState.NoMap or LocState.Loading;
 
@@ -159,13 +186,13 @@ public sealed partial class Plugin
 
         SetDistanceLine(isSelf, sameScene, self, target);
         if (ReferenceEquals(src, _lastBaseSrc) && _lastBaseVer == src.Version && drawSelf == _lastDrawSelf
-            && arrow == _lastArrow && Near(su.x, _lastSu) && Near(su.y, _lastSv)
+            && arrow == _lastArrow && _locFullMap == _lastFull && Near(su.x, _lastSu) && Near(su.y, _lastSv)
             && Near(tu.x, _lastTu) && Near(tu.y, _lastTv) && Math.Abs(yaw - _lastYaw) < 1f)
             return LocState.Ok;   // nothing moved enough to change the picture — keep the last upload
-        _lastBaseSrc = src; _lastBaseVer = src.Version; _lastDrawSelf = drawSelf; _lastArrow = arrow;
+        _lastBaseSrc = src; _lastBaseVer = src.Version; _lastDrawSelf = drawSelf; _lastArrow = arrow; _lastFull = _locFullMap;
         _lastSu = su.x; _lastSv = su.y; _lastTu = tu.x; _lastTv = tu.y; _lastYaw = yaw;
 
-        DrawLocation(src, su, tu, yaw, drawSelf, arrow);
+        DrawLocation(src, su, tu, yaw, drawSelf, arrow, _locFullMap);
         return LocState.Ok;
     }
 

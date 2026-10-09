@@ -45,6 +45,9 @@ public sealed partial class Plugin : IStellarPlugin, Stellar.PluginContracts.IFr
         _showWeapon = _services.Config.GetSection("portrait").Get<bool>("showWeapon", false);
         _services.EntityPortrait.ShowWeapon = _showWeapon;
 
+        // Location tab view: full region map (default) vs zoom-around-markers.
+        _locFullMap = _services.Config.GetSection("location").Get<bool>("fullMap", true);
+
         // Portrait lighting is fixed to Vivid (no picker, no config) — always apply it up front.
         _services.EntityPortrait.LightPreset = VividPreset;
 

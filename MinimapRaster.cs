@@ -19,20 +19,25 @@ namespace Stellar.EntityInspector;
 /// </summary>
 internal sealed class MinimapRaster : IDisposable
 {
-    public readonly int Size;
+    // W×H (not necessarily square): the Location tab sizes its raster to the resizable pane it fills, because the
+    // RenderTextureHostElement stretches the texture to the pane — a square raster in a non-square pane would distort.
+    // ⚠ Diverges from the RaidManager copy (square `Size` only) — port by hand if that one ever needs W×H.
+    public readonly int W, H;
     private readonly byte[] _px, _base;
     private GCHandle _pin;
     private Texture2D? _tex;
 
-    public MinimapRaster(int size)
+    public MinimapRaster(int size) : this(size, size) { }
+
+    public MinimapRaster(int w, int h)
     {
-        Size = size;
-        _px = new byte[size * size * 4];
+        W = w; H = h;
+        _px = new byte[w * h * 4];
         _base = new byte[_px.Length];
         _pin = GCHandle.Alloc(_px, GCHandleType.Pinned);
     }
 
-    // Boxed texture for GameTextureElement (created lazily on the main thread at first upload).
+    // Boxed texture for the RenderTextureHostElement (created lazily on the main thread at first upload).
     public object? Texture => _tex;
 
     // Raw RGBA32 buffer, Texture2D row order (byte row 0 = BOTTOM). The Location tab resamples the game's map art
@@ -41,7 +46,7 @@ internal sealed class MinimapRaster : IDisposable
 
     public void Upload()
     {
-        _tex ??= new Texture2D(Size, Size, TextureFormat.RGBA32, false)
+        _tex ??= new Texture2D(W, H, TextureFormat.RGBA32, false)
             { hideFlags = HideFlags.HideAndDontSave, wrapMode = TextureWrapMode.Clamp, filterMode = FilterMode.Bilinear };
         _tex.LoadRawTextureData(_pin.AddrOfPinnedObject(), _px.Length);
         _tex.Apply(false);
@@ -60,9 +65,9 @@ internal sealed class MinimapRaster : IDisposable
     // ── Pixel blend ──────────────────────────────────────────────────────────────────────────────────────────
     private void Blend(int x, int y, ColorRgba c, float a)
     {
-        if (a <= 0f || (uint)x >= (uint)Size || (uint)y >= (uint)Size) return;
+        if (a <= 0f || (uint)x >= (uint)W || (uint)y >= (uint)H) return;
         if (a > 1f) a = 1f;
-        int i = ((Size - 1 - y) * Size + x) * 4;
+        int i = ((H - 1 - y) * W + x) * 4;
         float da = _px[i + 3] / 255f, oa = a + da * (1f - a);
         if (oa <= 0f) return;
         _px[i]     = (byte)((c.R * 255f * a + _px[i]     * da * (1f - a)) / oa);
@@ -76,7 +81,7 @@ internal sealed class MinimapRaster : IDisposable
     private void Bounds(float x0, float y0, float x1, float y1, out int ax, out int ay, out int bx, out int by)
     {
         ax = Math.Max(0, (int)MathF.Floor(MathF.Min(x0, x1))); ay = Math.Max(0, (int)MathF.Floor(MathF.Min(y0, y1)));
-        bx = Math.Min(Size - 1, (int)MathF.Ceiling(MathF.Max(x0, x1))); by = Math.Min(Size - 1, (int)MathF.Ceiling(MathF.Max(y0, y1)));
+        bx = Math.Min(W - 1, (int)MathF.Ceiling(MathF.Max(x0, x1))); by = Math.Min(H - 1, (int)MathF.Ceiling(MathF.Max(y0, y1)));
     }
 
     // ── Primitives ───────────────────────────────────────────────────────────────────────────────────────────
@@ -167,7 +172,7 @@ internal sealed class MinimapRaster : IDisposable
         if (n < 3) return;
         float minY = float.MaxValue, maxY = float.MinValue;
         for (int i = 0; i < n; i++) { minY = MathF.Min(minY, xy[2 * i + 1]); maxY = MathF.Max(maxY, xy[2 * i + 1]); }
-        int y0 = Math.Max(0, (int)MathF.Floor(minY)), y1 = Math.Min(Size - 1, (int)MathF.Ceiling(maxY));
+        int y0 = Math.Max(0, (int)MathF.Floor(minY)), y1 = Math.Min(H - 1, (int)MathF.Ceiling(maxY));
         if (_xs.Length < n) _xs = new float[n * 2];
         for (int y = y0; y <= y1; y++)
         {
@@ -184,7 +189,7 @@ internal sealed class MinimapRaster : IDisposable
             for (int s = 0; s + 1 < k; s += 2)
             {
                 float l = _xs[s], r = _xs[s + 1];
-                int xa = Math.Max(0, (int)MathF.Floor(l)), xb = Math.Min(Size - 1, (int)MathF.Ceiling(r));
+                int xa = Math.Max(0, (int)MathF.Floor(l)), xb = Math.Min(W - 1, (int)MathF.Ceiling(r));
                 for (int x = xa; x <= xb; x++)
                     Blend(x, y, c, a * Cov(MathF.Min(x + 1f, r) - MathF.Max(x, l)));
             }

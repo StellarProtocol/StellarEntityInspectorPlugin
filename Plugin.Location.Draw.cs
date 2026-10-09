@@ -4,12 +4,20 @@ using UnityEngine;
 
 namespace Stellar.EntityInspector;
 
-// Location tab — raster painting: crop the cached map art around the marker(s), resample it into the MinimapRaster,
-// draw you (white dot) + the target (amber arrow when facing is known, amber dot otherwise). Split out of
-// Plugin.Location.cs, which decides WHERE the target is and WHICH base art to use.
+// Location tab — raster painting: crop the cached map art around the marker(s) (zoom) or take all of it (full map),
+// resample it into the MinimapRaster, draw you (white dot) + the target (amber arrow when facing is known, amber dot
+// otherwise). Also owns the raster's pane-driven sizing. Split out of Plugin.Location.cs, which decides WHERE the
+// target is and WHICH base art to use.
 public sealed partial class Plugin
 {
-    private const int MapPx = 320;               // on-screen raster size (square)
+    // The map is shown through a RenderTextureHostElement, which FILLS its pane (column width × leftover height) and
+    // STRETCHES the bound texture to it (RawImage anchored 0..1, no AspectRatioFitter) — so the raster is sized to the
+    // pane (W×H, reported each frame through OnViewportResize) and the square map is drawn centred/aspect-fit inside
+    // it, the margins letterboxed with LocBackdrop.
+    private const int LocPaneMin = 120;          // host LayoutElement min (both axes) — fits the body at MinHeight 360
+    private const int LocRasterMin = 160, LocRasterMax = 1024;   // raster px clamp per axis (1024² = 4 MB × 2 buffers)
+    private const int LocResizeStep = 8;         // rebuild at once when the pane changed by ≥ this many px …
+    private const long LocResizeSettleMs = 200;  // … or once a smaller change has held this long (drags fire per frame)
     private const float MinSpanWorld = 120f;     // never zoom in tighter than this many world units (show surroundings)
     private const float SpanPad = 1.5f;          // crop = separation × this, so both markers sit well inside the edge
 
@@ -17,6 +25,28 @@ public sealed partial class Plugin
     private static readonly ColorRgba LocTargetCol = new(0.98f, 0.72f, 0.20f, 1f);   // amber
     private static readonly ColorRgba LocRimCol    = new(0.05f, 0.06f, 0.08f, 1f);
     private static readonly string[] Compass8 = { "N", "NE", "E", "SE", "S", "SW", "W", "NW" };
+
+    // Accepted raster size (what DrawLocation builds at) + the debounce's pending candidate.
+    private int _locPxW = 400, _locPxH = 400;
+    private int _locWantW, _locWantH;
+    private long _locWantSinceMs;
+
+    // OnViewportResize: called EVERY frame by the framework ticker (before it binds the texture), in canvas px.
+    private void OnLocationPaneResize(int w, int h)
+    {
+        w = Math.Clamp(w, LocRasterMin, LocRasterMax);
+        h = Math.Clamp(h, LocRasterMin, LocRasterMax);
+        if (w == _locPxW && h == _locPxH) { _locWantW = 0; return; }
+        long now = Environment.TickCount64;
+        if (w != _locWantW || h != _locWantH) { _locWantW = w; _locWantH = h; _locWantSinceMs = now; }
+        bool big = Math.Abs(w - _locPxW) >= LocResizeStep || Math.Abs(h - _locPxH) >= LocResizeStep;
+        if (!big && now - _locWantSinceMs < LocResizeSettleMs) return;
+        _locPxW = w; _locPxH = h; _locWantW = 0;
+        _lastSu = float.NaN;   // force the redraw at the new size
+        // Re-render now: the ticker binds the texture right after this returns, so the new raster shows this frame
+        // and the old (Destroy-deferred) texture is never bound again. Off the Location tab it waits for the next view.
+        if (_tab == Tab.Location && _locState == LocState.Ok) RebuildLocation();
+    }
 
     // Direction self → target, N = +Z, E = +X (⚠ needs visual confirmation against the game's map orientation).
     private static string CompassOf(float dx, float dz)
@@ -27,49 +57,80 @@ public sealed partial class Plugin
         return Compass8[i];
     }
 
-    // Crop a square window of the cached map art centred on the midpoint of the two markers, sized to fit both
-    // (≥ MinSpanWorld, ≤ the art), clamped inside the art; bilinear-resample it into the raster; draw the markers.
+    // ZOOM: crop a square window of the cached map art centred on the midpoint of the two markers, sized to fit both
+    // (≥ MinSpanWorld, ≤ the art), clamped inside the art. FULL: the whole art — a square window of side max(W, H)
+    // centred on it, so a non-square art is letterboxed (Resample paints outside-the-art as backdrop) rather than
+    // stretched. Either way the window is resampled into a side = min(rasterW, rasterH) square centred in the raster.
     // With no self marker the caller passes su == tu, so the crop centres on the target alone.
-    private void DrawLocation(ILocationBase src, Vector2 su, Vector2 tu, float yaw, bool drawSelf, bool arrow)
+    private void DrawLocation(ILocationBase src, Vector2 su, Vector2 tu, float yaw, bool drawSelf, bool arrow, bool full)
     {
-        _locRaster ??= new MinimapRaster(MapPx);
+        if (_locRaster != null && (_locRaster.W != _locPxW || _locRaster.H != _locPxH))
+        { _locRaster.Dispose(); _locRaster = null; }
+        _locRaster ??= new MinimapRaster(_locPxW, _locPxH);
         int W = src.BaseW, H = src.BaseH;
-        float sep = MathF.Max(MathF.Abs(su.x - tu.x), MathF.Abs(su.y - tu.y));
-        float span = MathF.Max(sep * SpanPad, MinSpanWorld * src.PxPerWorld);
-        span = MathF.Min(span, MathF.Min(W, H));
-        float left   = Math.Clamp((su.x + tu.x) / 2f - span / 2f, 0f, W - span);
-        float bottom = Math.Clamp((su.y + tu.y) / 2f - span / 2f, 0f, H - span);
+        float span, left, bottom;
+        if (full)
+        {
+            span = MathF.Max(W, H);
+            left = (W - span) / 2f; bottom = (H - span) / 2f;   // ≤ 0: the letterbox margins
+        }
+        else
+        {
+            float sep = MathF.Max(MathF.Abs(su.x - tu.x), MathF.Abs(su.y - tu.y));
+            span = MathF.Max(sep * SpanPad, MinSpanWorld * src.PxPerWorld);
+            span = MathF.Min(span, MathF.Min(W, H));
+            left   = Math.Clamp((su.x + tu.x) / 2f - span / 2f, 0f, W - span);
+            bottom = Math.Clamp((su.y + tu.y) / 2f - span / 2f, 0f, H - span);
+        }
 
-        Resample(src.Base!, W, H, left, bottom, span, _locRaster);
+        int side = Math.Min(_locRaster.W, _locRaster.H);
+        int ox = (_locRaster.W - side) / 2, oy = (_locRaster.H - side) / 2;   // the square's top-left, canvas coords
+        Resample(src.Base!, W, H, left, bottom, span, _locRaster, ox, oy, side);
 
         // Base px → raster canvas coords (x right, y DOWN — the raster's primitive convention).
-        float k = MapPx / span;
-        float sx = (su.x - left) * k, sy = MapPx - (su.y - bottom) * k;
-        float tx = (tu.x - left) * k, ty = MapPx - (tu.y - bottom) * k;
+        float k = side / span;
+        float sx = ox + (su.x - left) * k, sy = oy + side - (su.y - bottom) * k;
+        float tx = ox + (tu.x - left) * k, ty = oy + side - (tu.y - bottom) * k;
+        // Marker sizes were tuned on the old fixed 320 px square, so they scale with the square's side. Full view is
+        // ~6 m per px at 400, so a zoom-sized marker is a speck — scale both up further and give the target a soft
+        // halo (faint amber disc + ring) so it's findable on busy art; self gets a fainter, smaller one.
+        float m = Math.Clamp(side / 320f, 0.6f, 2.5f) * (full ? 1.35f : 1f);
         if (drawSelf)
         {
-            _locRaster.FillCircle(sx, sy, 6.5f, LocRimCol, 0.85f);
-            _locRaster.FillCircle(sx, sy, 4.5f, LocSelfCol, 1f);
+            if (full) Halo(_locRaster, sx, sy, 8f * m, LocSelfCol, 0.5f);
+            _locRaster.FillCircle(sx, sy, 6.5f * m, LocRimCol, 0.85f);
+            _locRaster.FillCircle(sx, sy, 4.5f * m, LocSelfCol, 1f);
         }
-        if (arrow) DrawArrow(_locRaster, tx, ty, yaw);
+        if (full) Halo(_locRaster, tx, ty, 15f * m, LocTargetCol, 1f);
+        if (arrow) DrawArrow(_locRaster, tx, ty, yaw, m);
         else
         {
             // Social (far) location: no facing on the wire (dir is always 0) — a plain amber dot, larger than yours.
-            _locRaster.FillCircle(tx, ty, 8f, LocRimCol, 0.85f);
-            _locRaster.FillCircle(tx, ty, 6f, LocTargetCol, 1f);
+            _locRaster.FillCircle(tx, ty, 8f * m, LocRimCol, 0.85f);
+            _locRaster.FillCircle(tx, ty, 6f * m, LocTargetCol, 1f);
         }
         _locRaster.Upload();
     }
 
+    // Soft "find me" halo: translucent disc, then a dark-backed ring at radius rad (the dark under-stroke keeps the
+    // ring visible on bright art, the colour stroke on dark art). `a` scales the whole thing (self is fainter).
+    private static void Halo(MinimapRaster r, float cx, float cy, float rad, ColorRgba c, float a)
+    {
+        r.FillCircle(cx, cy, rad, c, 0.16f * a);
+        r.StrokeCircle(cx, cy, rad, 3.5f, LocRimCol, 0.55f * a);
+        r.StrokeCircle(cx, cy, rad, 1.8f, c, 0.85f * a);
+    }
+
     // Facing arrow. Yaw = Unity-style degrees (0 = +Z/north, clockwise toward +X/east seen from above) on a north-up,
     // east-right map with canvas y down ⇒ direction (sin, −cos). ⚠ Needs visual confirmation in-game.
-    private static void DrawArrow(MinimapRaster r, float cx, float cy, float yawDeg)
+    // `scale` enlarges the whole arrow (raster size / full-map view).
+    private static void DrawArrow(MinimapRaster r, float cx, float cy, float yawDeg, float scale)
     {
         float a = yawDeg * (MathF.PI / 180f);
         float dx = MathF.Sin(a), dy = -MathF.Cos(a), px = -dy, py = dx;
         for (int pass = 0; pass < 2; pass++)
         {
-            float s = pass == 0 ? 1.35f : 1f;   // dark rim pass first, then the amber body
+            float s = (pass == 0 ? 1.35f : 1f) * scale;   // dark rim pass first, then the amber body
             float tipX = cx + dx * 11f * s, tipY = cy + dy * 11f * s;
             float bx = cx - dx * 6f * s, by = cy - dy * 6f * s;
             r.FillTriangle(tipX, tipY, bx + px * 7f * s, by + py * 7f * s, bx - px * 7f * s, by - py * 7f * s,
@@ -77,22 +138,32 @@ public sealed partial class Plugin
         }
     }
 
-    // Bilinear sample of the base crop [left, left+span) × [bottom, bottom+span) into the raster. Both buffers are
-    // bottom-origin RGBA32, so raster byte row r maps straight to v = bottom + (r + 0.5)·step — no flip.
-    private static void Resample(byte[] b, int W, int H, float left, float bottom, float span, MinimapRaster r)
+    // Bilinear sample of the base window [left, left+span)² into the side×side square at canvas (ox, oy) of the
+    // raster; everything outside that square — and any sample outside the art (full-view letterbox) — is backdrop.
+    // Both buffers are bottom-origin RGBA32, so square byte row r maps straight to v = bottom + (r + 0.5)·step.
+    private static void Resample(byte[] b, int W, int H, float left, float bottom, float span, MinimapRaster r,
+        int ox, int oy, int side)
     {
         var dst = r.Pixels;
-        int S = r.Size;
-        float step = span / S;
-        for (int row = 0; row < S; row++)
+        int RW = r.W, RH = r.H;
+        int row0 = RH - oy - side;   // the square's first byte row (canvas y runs down, byte rows run up)
+        float step = span / side;
+        for (int row = 0; row < RH; row++)
         {
-            float v = bottom + (row + 0.5f) * step - 0.5f;
+            int sr = row - row0, o = row * RW * 4;
+            float v = bottom + (sr + 0.5f) * step - 0.5f;
+            bool rowIn = sr >= 0 && sr < side && v >= -0.5f && v <= H - 0.5f;
             int v0 = Math.Clamp((int)MathF.Floor(v), 0, H - 1), v1 = Math.Min(v0 + 1, H - 1);
             float fv = Math.Clamp(v - v0, 0f, 1f);
-            int o = row * S * 4;
-            for (int col = 0; col < S; col++, o += 4)
+            for (int col = 0; col < RW; col++, o += 4)
             {
-                float u = left + (col + 0.5f) * step - 0.5f;
+                int sc = col - ox;
+                float u = left + (sc + 0.5f) * step - 0.5f;
+                if (!rowIn || sc < 0 || sc >= side || u < -0.5f || u > W - 0.5f)
+                {
+                    dst[o] = LocBackdropB[0]; dst[o + 1] = LocBackdropB[1]; dst[o + 2] = LocBackdropB[2]; dst[o + 3] = 255;
+                    continue;
+                }
                 int u0 = Math.Clamp((int)MathF.Floor(u), 0, W - 1), u1 = Math.Min(u0 + 1, W - 1);
                 float fu = Math.Clamp(u - u0, 0f, 1f);
                 int i00 = (v0 * W + u0) * 4, i10 = (v0 * W + u1) * 4, i01 = (v1 * W + u0) * 4, i11 = (v1 * W + u1) * 4;
@@ -108,6 +179,7 @@ public sealed partial class Plugin
     }
 
     private static readonly float[] LocBackdrop = { 20f, 24f, 30f };
+    private static readonly byte[] LocBackdropB = { 20, 24, 30 };
 
     private static float Lerp2(byte[] b, int i00, int i10, int i01, int i11, float fu, float fv)
     {
