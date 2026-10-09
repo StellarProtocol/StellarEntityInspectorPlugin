@@ -11,10 +11,10 @@ namespace Stellar.EntityInspector;
 // plugin-owned CPU raster (MinimapRaster) shown through RenderTextureHostElement. Refreshed on the 10 Hz snapshot tick (only
 // while the window is shown and this tab is selected); the raster redraws only when a marker moved or the base changed.
 // Where the TARGET is comes from, in order:
-//   (a) IEntityTransforms — in AOI ⇒ in our scene: live pos + yaw, art = the live radar's (LocationMapSource);
+//   (a) IEntityTransforms — in AOI ⇒ in our scene: live pos, art = the live radar's (LocationMapSource);
 //   (b) the cached social snapshot's SocialLocation (filled by the target's profile/ID card fetch, any distance, any
-//       zone): CurrentSceneId/CurrentPos, no facing (dir is always 0) ⇒ plain dot; art = the radar's when it's our
-//       scene, else that scene's art loaded from its assets (SceneMapLoader — never touches the live radar);
+//       zone): CurrentSceneId/CurrentPos; art = the radar's when it's our scene, else that scene's art loaded
+//       from its assets (SceneMapLoader — never touches the live radar);
 //   (c) neither ⇒ a hint to open their profile card.
 // Drawing (crop/resample/markers) lives in Plugin.Location.Draw.cs. Every interop step is try/catch'd — failures
 // become a status line.
@@ -38,11 +38,11 @@ public sealed partial class Plugin
     private bool _locProbeStarted;
     private int _locProbeScene, _locProbeLayer, _locProbeIdle;
 
-    // Redraw dirty-check: last drawn base / marker pixels / yaw / marker style (NaN = force).
-    private float _lastSu = float.NaN, _lastSv, _lastTu, _lastTv, _lastYaw;
+    // Redraw dirty-check: last drawn base / marker pixels / view mode (NaN = force).
+    private float _lastSu = float.NaN, _lastSv, _lastTu, _lastTv;
     private int _lastBaseVer = -1;
     private ILocationBase? _lastBaseSrc;
-    private bool _lastDrawSelf, _lastArrow, _lastFull;
+    private bool _lastDrawSelf, _lastFull;
     private bool _locWarned;
 
     // Full map (whole region art) vs zoom (crop around the markers). Persisted: config "location" / "fullMap".
@@ -136,12 +136,12 @@ public sealed partial class Plugin
         bool isSelf = IsSelf, live = true;
         Vector3 target; int scene = curScene;
         SocialLocation? social = null;
-        if (_services.EntityTransforms.TryGetTransform(_target, out var tp, out var yaw))
+        if (_services.EntityTransforms.TryGetTransform(_target, out var tp, out _))   // yaw ignored: the target is always a plain dot
             target = new Vector3(tp.X, tp.Y, tp.Z);
-        else if (isSelf) { target = self; yaw = 0f; }   // self always has a position, even if the transform read misses
+        else if (isSelf) target = self;     // self always has a position, even if the transform read misses
         else if (_socialSnap?.Location is { } loc && loc.CurrentSceneId != 0)
         {
-            social = loc; live = false; yaw = 0f;
+            social = loc; live = false;
             scene = loc.CurrentSceneId;
             var p = loc.CurrentPos;
             target = new Vector3(p.X, p.Y, p.Z);
@@ -182,17 +182,16 @@ public sealed partial class Plugin
             drawSelf = sameScene && !isSelf && src.TryImgPos(self, out su) && InBase(src, su);
         }
         if (!drawSelf) su = tu;   // crop centres on the target alone
-        bool arrow = live;        // social locations carry no facing ⇒ plain dot
 
         SetDistanceLine(isSelf, sameScene, self, target);
         if (ReferenceEquals(src, _lastBaseSrc) && _lastBaseVer == src.Version && drawSelf == _lastDrawSelf
-            && arrow == _lastArrow && _locFullMap == _lastFull && Near(su.x, _lastSu) && Near(su.y, _lastSv)
-            && Near(tu.x, _lastTu) && Near(tu.y, _lastTv) && Math.Abs(yaw - _lastYaw) < 1f)
+            && _locFullMap == _lastFull && Near(su.x, _lastSu) && Near(su.y, _lastSv)
+            && Near(tu.x, _lastTu) && Near(tu.y, _lastTv))
             return LocState.Ok;   // nothing moved enough to change the picture — keep the last upload
-        _lastBaseSrc = src; _lastBaseVer = src.Version; _lastDrawSelf = drawSelf; _lastArrow = arrow; _lastFull = _locFullMap;
-        _lastSu = su.x; _lastSv = su.y; _lastTu = tu.x; _lastTv = tu.y; _lastYaw = yaw;
+        _lastBaseSrc = src; _lastBaseVer = src.Version; _lastDrawSelf = drawSelf; _lastFull = _locFullMap;
+        _lastSu = su.x; _lastSv = su.y; _lastTu = tu.x; _lastTv = tu.y;
 
-        DrawLocation(src, su, tu, yaw, drawSelf, arrow, _locFullMap);
+        DrawLocation(src, su, tu, drawSelf, _locFullMap);
         return LocState.Ok;
     }
 

@@ -5,8 +5,8 @@ using UnityEngine;
 namespace Stellar.EntityInspector;
 
 // Location tab — raster painting: crop the cached map art around the marker(s) (zoom) or take all of it (full map),
-// resample it into the MinimapRaster, draw you (white dot) + the target (amber arrow when facing is known, amber dot
-// otherwise). Also owns the raster's pane-driven sizing. Split out of Plugin.Location.cs, which decides WHERE the
+// resample it into the MinimapRaster, draw you (white dot) + the target (amber dot — position only, no facing).
+// Also owns the raster's pane-driven sizing. Split out of Plugin.Location.cs, which decides WHERE the
 // target is and WHICH base art to use.
 public sealed partial class Plugin
 {
@@ -62,7 +62,7 @@ public sealed partial class Plugin
     // centred on it, so a non-square art is letterboxed (Resample paints outside-the-art as backdrop) rather than
     // stretched. Either way the window is resampled into a side = min(rasterW, rasterH) square centred in the raster.
     // With no self marker the caller passes su == tu, so the crop centres on the target alone.
-    private void DrawLocation(ILocationBase src, Vector2 su, Vector2 tu, float yaw, bool drawSelf, bool arrow, bool full)
+    private void DrawLocation(ILocationBase src, Vector2 su, Vector2 tu, bool drawSelf, bool full)
     {
         if (_locRaster != null && (_locRaster.W != _locPxW || _locRaster.H != _locPxH))
         { _locRaster.Dispose(); _locRaster = null; }
@@ -101,13 +101,10 @@ public sealed partial class Plugin
             _locRaster.FillCircle(sx, sy, 3.5f, LocSelfCol, 1f);
         }
         if (full) Ping(_locRaster, tx, ty, 9f, LocTargetCol);
-        if (arrow) DrawArrow(_locRaster, tx, ty, yaw);
-        else
-        {
-            // Social (far) location: no facing on the wire (dir is always 0) — a plain amber dot, larger than yours.
-            _locRaster.FillCircle(tx, ty, 6.75f, LocRimCol, 0.85f);
-            _locRaster.FillCircle(tx, ty, 5f, LocTargetCol, 1f);
-        }
+        // Target: the same amber dot whether live (in AOI) or a far social location — position only, no facing
+        // indicator (a yaw arrow was dropped as unwanted). Larger than yours so it reads as the subject.
+        _locRaster.FillCircle(tx, ty, 6.75f, LocRimCol, 0.85f);
+        _locRaster.FillCircle(tx, ty, 5f, LocTargetCol, 1f);
         _locRaster.Upload();
     }
 
@@ -117,23 +114,6 @@ public sealed partial class Plugin
     {
         r.StrokeCircle(cx, cy, rad, 2.2f, LocRimCol, 0.35f);
         r.StrokeCircle(cx, cy, rad, 1.2f, c, 0.55f);
-    }
-
-    // Facing arrow. Yaw = Unity-style degrees (0 = +Z/north, clockwise toward +X/east seen from above) on a north-up,
-    // east-right map with canvas y down ⇒ direction (sin, −cos). ⚠ Needs visual confirmation in-game.
-    // Fixed size in raster px (= screen px), same in zoom and full view.
-    private static void DrawArrow(MinimapRaster r, float cx, float cy, float yawDeg)
-    {
-        float a = yawDeg * (MathF.PI / 180f);
-        float dx = MathF.Sin(a), dy = -MathF.Cos(a), px = -dy, py = dx;
-        for (int pass = 0; pass < 2; pass++)
-        {
-            float s = pass == 0 ? 1.35f : 1f;   // dark rim pass first, then the amber body
-            float tipX = cx + dx * 11f * s, tipY = cy + dy * 11f * s;
-            float bx = cx - dx * 6f * s, by = cy - dy * 6f * s;
-            r.FillTriangle(tipX, tipY, bx + px * 7f * s, by + py * 7f * s, bx - px * 7f * s, by - py * 7f * s,
-                pass == 0 ? LocRimCol : LocTargetCol, pass == 0 ? 0.85f : 1f);
-        }
     }
 
     // Bilinear sample of the base window [left, left+span)² into the side×side square at canvas (ox, oy) of the
