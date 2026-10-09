@@ -19,11 +19,11 @@ namespace Stellar.EntityInspector;
 /// See Knowledge Base\Minimap-World-Projection.md (radar acquisition recipe + Il2CppInterop gotchas). Direct
 /// reflection only — no Harmony. Unity main thread only.
 /// </summary>
-internal sealed class LocationMapSource : IDisposable
+internal sealed class LocationMapSource : ILocationBase, IDisposable
 {
     // Readback cap: the radar art is 2048² in town (16 MB as RGBA32). Larger art is Blit-downscaled to this, and
     // GetImgPos is called with the readback size so projection stays consistent.
-    private const int MaxReadback = 2048;
+    internal const int MaxReadback = 2048;
     // A failed widget scan (no radar in this scene / UI not built yet) retries only every N calls — the scan is a
     // full Resources.FindObjectsOfTypeAll, far too heavy for the 10 Hz snapshot tick (~2 s at 10 Hz).
     private const int RescanEvery = 20;
@@ -34,7 +34,7 @@ internal sealed class LocationMapSource : IDisposable
     private bool _resolved, _resolveFailed;
     private Type? _widgetType, _widgetBaseType, _mgrType;
     private PropertyInfo? _piMapBgSize, _piFlagParent, _piMapBgImg, _piCurLayerId;
-    private MethodInfo? _miGetImgPos, _miGetAddr, _miRegionSize, _miRegionCenter;
+    private MethodInfo? _miGetImgPos, _miGetAddr, _miRegionSize, _miRegionCenter, _miRdAddr, _miSceneAddr;
     private UnityEngine.Object? _widget;   // Unity-overloaded null: goes "null" when the scene rebuilds the radar
     private object? _mgr;
     private int _scanCooldown;
@@ -49,8 +49,8 @@ internal sealed class LocationMapSource : IDisposable
 
     /// <summary>Ensure <see cref="Base"/> holds the radar's current map art. Rebuilds (one readback) only when the
     /// radar's texture instance / size / layer changed; a key whose readback failed is not retried until it changes.
-    /// <paramref name="self"/>/<paramref name="target"/> feed the one-line calibration log on a rebuild.</summary>
-    public bool TryEnsureBase(Vector3 self, Vector3 target)
+    /// <paramref name="self"/>/<paramref name="target"/>/<paramref name="sceneId"/> feed the one-line calibration log on a rebuild.</summary>
+    public bool TryEnsureBase(Vector3 self, Vector3 target, int sceneId)
     {
         if (!Resolve()) return false;
         var tex = CurrentTexture(out var img);
@@ -61,10 +61,10 @@ internal sealed class LocationMapSource : IDisposable
         if (key == _failedKey) return false;
 
         DropBase();
-        if (!Readback(tex, out var buf, out int w, out int h)) { _failedKey = key; return false; }
+        if (!Readback(tex, MaxReadback, m => WarnOnce("readback", m), out var buf, out int w, out int h)) { _failedKey = key; return false; }
         Base = buf; BaseW = w; BaseH = h; _baseKey = key; _failedKey = null; Version++;
         PxPerWorld = MeasurePxPerWorld(self);
-        LogCalibration(tex, img, layer, self, target);
+        LogCalibration(tex, img, layer, sceneId, self, target);
         return true;
     }
 
@@ -111,6 +111,8 @@ internal sealed class LocationMapSource : IDisposable
             _miGetAddr      = FindMethod(_mgrType, "GetCurRegionMapAddress", 0);
             _miRegionSize   = FindMethod(_mgrType, "GetCurRegionSize", 0);
             _miRegionCenter = FindMethod(_mgrType, "GetCurRegionCenter", 0);
+            _miRdAddr       = FindMethod(_mgrType, "GetSceneMapRegionDataAddress", 1);   // diag only (shared log format)
+            _miSceneAddr    = FindMethod(_mgrType, "GetSceneMapAddress", 2);
 
             _resolved = true;
             _resolveFailed = _piMapBgImg == null || _miGetImgPos == null;   // the two essentials
@@ -186,7 +188,7 @@ internal sealed class LocationMapSource : IDisposable
     }
 
     private static MethodInfo? _tryCast;
-    private static object? TryCast(object o, Type t)
+    internal static object? TryCast(object o, Type t)
     {
         try
         {
@@ -201,7 +203,7 @@ internal sealed class LocationMapSource : IDisposable
         catch { return null; }
     }
 
-    private static MethodInfo? FindMethod(Type t, string name, int argc)
+    internal static MethodInfo? FindMethod(Type t, string name, int argc)
     {
         for (Type? cur = t; cur != null; cur = cur.BaseType)
             foreach (var m in cur.GetMethods(BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance | BindingFlags.DeclaredOnly))
@@ -215,10 +217,10 @@ internal sealed class LocationMapSource : IDisposable
     // Texture2D, copy its pixels out, and release both immediately. sRGB read/write so a linear-space project
     // re-encodes on write and the bytes round-trip unchanged (no-op in gamma space) — confirm colours in-game.
     // ReadPixels row 0 = bottom, same as GetImgPos's bottom-left origin, so no flip.
-    private bool Readback(Texture src, out byte[] buf, out int w, out int h)
+    internal static bool Readback(Texture src, int max, Action<string> warn, out byte[] buf, out int w, out int h)
     {
         buf = Array.Empty<byte>();
-        w = Math.Min(src.width, MaxReadback); h = Math.Min(src.height, MaxReadback);
+        w = Math.Min(src.width, max); h = Math.Min(src.height, max);
         RenderTexture? rt = null; Texture2D? rb = null;
         var prev = RenderTexture.active;
         try
@@ -230,11 +232,11 @@ internal sealed class LocationMapSource : IDisposable
             rb.ReadPixels(new Rect(0, 0, w, h), 0, 0, false);   // CPU copy only — no Apply() (no GPU re-upload needed)
             var px = rb.GetPixels32();
             var bytes = MemoryMarshal.AsBytes(px.AsSpan());       // Color32 = 4 blittable bytes, RGBA order
-            if (bytes.Length != w * h * 4) { WarnOnce("readback", $"readback size mismatch {bytes.Length} != {w * h * 4}"); return false; }
+            if (bytes.Length != w * h * 4) { warn($"readback size mismatch {bytes.Length} != {w * h * 4}"); return false; }
             buf = bytes.ToArray();
             return true;
         }
-        catch (Exception ex) { WarnOnce("readback", $"map readback failed: {ex.Message}"); return false; }
+        catch (Exception ex) { warn($"map readback failed: {ex.Message}"); return false; }
         finally
         {
             RenderTexture.active = prev;
@@ -262,8 +264,10 @@ internal sealed class LocationMapSource : IDisposable
         try { return _piCurLayerId?.GetValue(Manager) is int l ? l : -1; } catch { return -1; }
     }
 
-    // ONE info line per base (re)build — this is how the projection/readback gets calibrated in-game.
-    private void LogCalibration(Texture tex, RawImage? img, int layer, Vector3 self, Vector3 target)
+    // ONE info line per base (re)build — this is how the projection/readback gets calibrated in-game. Same leading
+    // fields as SceneMapLoader's line (scene/cur/rdAddr/sceneAddr/…/via) so radar and loaded builds compare directly;
+    // region= here is the radar's current region address (the radar has no RegionName accessor).
+    private void LogCalibration(Texture tex, RawImage? img, int layer, int sceneId, Vector3 self, Vector3 target)
     {
         try
         {
@@ -277,9 +281,13 @@ internal sealed class LocationMapSource : IDisposable
                 ? $"({c.x - s.x / 2f:F1},{c.z - s.y / 2f:F1})" : "?";   // BL = centre − size/2 on x/z (KB live check)
             string selfPx = TryImgPos(self, out var sp) ? sp.ToString() : "?";
             string tgtPx = TryImgPos(target, out var tp) ? tp.ToString() : "?";
-            _info($"[EntityInspector][MapTex] layer={layer} addr='{ReadAddress()}' tex={tex.name} {tex.width}x{tex.height} " +
-                  $"read={BaseW}x{BaseH} type={typeName} readable={tex.isReadable} uvRect={uv} BL={bl} " +
-                  $"regionSize={size ?? "?"} center={center ?? "?"} pxPerWorld={PxPerWorld:F3} selfPx={selfPx} targetPx={tgtPx}");
+            string rdAddr = "?", sceneAddr = "?";
+            try { if (_miRdAddr != null && Manager is { } m1) rdAddr = AddressString(_miRdAddr.Invoke(m1, new object[] { sceneId })); } catch { }
+            try { if (_miSceneAddr != null && Manager is { } m2) sceneAddr = AddressString(_miSceneAddr.Invoke(m2, new object[] { sceneId, layer })); } catch { }
+            _info($"[EntityInspector][MapTex] scene={sceneId} cur=True rdAddr='{rdAddr}' sceneAddr='{sceneAddr}' " +
+                  $"region='{ReadAddress()}' BL={bl} size={size ?? "?"} off=? tex={tex.name} {tex.width}x{tex.height} " +
+                  $"read={BaseW}x{BaseH} layer={layer} type={typeName} readable={tex.isReadable} uvRect={uv} " +
+                  $"center={center ?? "?"} pxPerWorld={PxPerWorld:F3} selfPx={selfPx} targetPx={tgtPx} via=radar");
         }
         catch (Exception ex) { WarnOnce("diag", $"calibration log failed: {ex.Message}"); }
     }
@@ -291,11 +299,13 @@ internal sealed class LocationMapSource : IDisposable
 
     // ZResAddress (struct: _nativeString + _addressString) → its path. Il2CppInterop wraps it as a class, whose
     // ToString may be just the type name, so prefer the game's own explicit string conversion, then the field.
-    private string ReadAddress()
+    private string ReadAddress() => AddressString(Invoke0(_miGetAddr));
+
+    // Shared with SceneMapLoader (log-confirmed on the radar path: 'ui/textures/scenemaps/cty001/cty001_cty001').
+    internal static string AddressString(object? addr)
     {
         try
         {
-            var addr = Invoke0(_miGetAddr);
             if (addr == null) return "?";
             var t = addr.GetType();
             foreach (var m in t.GetMethods(BindingFlags.Public | BindingFlags.Static))
