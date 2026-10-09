@@ -15,7 +15,8 @@ namespace Stellar.EntityInspector;
 //   (b) the cached social snapshot's SocialLocation (filled by the target's profile/ID card fetch, any distance, any
 //       zone): CurrentSceneId/CurrentPos; art = the radar's when it's our scene, else that scene's art loaded
 //       from its assets (SceneMapLoader — never touches the live radar);
-//   (c) neither ⇒ a hint to open their profile card.
+//   (c) neither ⇒ "Fetching location…" while a request is out, then a hint to open their profile card.
+// While on (b)/(c) the tab re-requests the social data itself (Plugin.Location.Refresh.cs: every 5 s + a Refresh button).
 // Drawing (crop/resample/markers) lives in Plugin.Location.Draw.cs. Every interop step is try/catch'd — failures
 // become a status line.
 public sealed partial class Plugin
@@ -58,11 +59,17 @@ public sealed partial class Plugin
     private HudElement BuildLocationBody() => new ColumnElement(new HudElement[]
     {
         new ConditionalElement(() => _locState != LocState.Ok, new TextElement(LocStateLine, MutedCol)),
-        new ConditionalElement(() => _locState == LocState.Ok,
+        // View presets need the map; Refresh (far targets only) shows with or without it.
+        new ConditionalElement(() => _locState == LocState.Ok || CanShowRefresh,
             new RowElement(new HudElement[]
             {
-                new ButtonElement(() => _loc.T("ei.location.fullMap"), ShowFullMap, Active: () => IsFullView),
-                new ButtonElement(() => _loc.T("ei.location.focus"), FocusTarget, Active: () => _viewFollow),
+                new ConditionalElement(() => _locState == LocState.Ok, new RowElement(new HudElement[]
+                {
+                    new ButtonElement(() => _loc.T("ei.location.fullMap"), ShowFullMap, Active: () => IsFullView),
+                    new ButtonElement(() => _loc.T("ei.location.focus"), FocusTarget, Active: () => _viewFollow),
+                }, Gap: 6f)),
+                new ConditionalElement(() => CanShowRefresh,
+                    new ButtonElement(RefreshLabel, RefreshLocationNow, Enabled: RefreshEnabled)),
                 new SpacerElement(),
             }, Gap: 6f)),
         new ConditionalElement(() => _locState == LocState.Ok,
@@ -82,7 +89,7 @@ public sealed partial class Plugin
     private string LocStateLine() => _locState switch
     {
         LocState.Frozen      => _loc.T("ei.location.frozen"),
-        LocState.Far         => _loc.T("ei.location.far"),
+        LocState.Far         => _loc.T(LocFetching ? "ei.location.fetching" : "ei.location.far"),
         LocState.Unavailable => _loc.T("ei.location.unavailable"),
         LocState.Loading     => _loc.T("ei.location.loading"),
         LocState.NoMap       => _loc.T("ei.location.noMap"),
@@ -116,11 +123,13 @@ public sealed partial class Plugin
             if (!_locWarned) { _locWarned = true; _services.Log.Warning($"[EntityInspector][Location] update failed: {ex.Message}"); }
             _locState = LocState.Unavailable;
         }
+        TickLocationRefresh();   // far target: keep its social location fresh (Plugin.Location.Refresh.cs)
     }
 
     private LocState UpdateLocation()
     {
         _locZone = _locAge = _locLine = "";
+        _locLive = false;
         var sp = _services.PlayerState.Position;
         if (sp.X == 0f && sp.Y == 0f && sp.Z == 0f) return LocState.Unavailable;   // not in-world yet
         var self = new Vector3(sp.X, sp.Y, sp.Z);
@@ -132,8 +141,8 @@ public sealed partial class Plugin
         Vector3 target; int scene = curScene;
         SocialLocation? social = null;
         if (_services.EntityTransforms.TryGetTransform(_target, out var tp, out _))   // yaw ignored: the target is always a plain dot
-            target = new Vector3(tp.X, tp.Y, tp.Z);
-        else if (isSelf) target = self;     // self always has a position, even if the transform read misses
+        { target = new Vector3(tp.X, tp.Y, tp.Z); _locLive = true; }
+        else if (isSelf) { target = self; _locLive = true; }   // self always has a position, even if the transform read misses
         else if (_socialSnap?.Location is { } loc && loc.CurrentSceneId != 0)
         {
             social = loc; live = false;
