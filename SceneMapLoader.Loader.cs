@@ -20,7 +20,12 @@ internal sealed partial class SceneMapLoader
     private MethodInfo? _miRdAddr, _miSceneAddr, _miCurAddr;
     private PropertyInfo? _piCurLayer;
     private readonly MethodInfo?[] _loadByAddr = new MethodInfo?[3], _loadByString = new MethodInfo?[3], _release = new MethodInfo?[3];
-    private uint _token;
+    // ONE rented ZCancelSource for the loader's lifetime; CreateToken() mints a fresh uint per load. ZResLoader rejects
+    // token=0 AND a reused token ("invaid token") — it releases the token when the load completes, so NeverCancelToken /
+    // any cached token faults every load after the first (in-game 2026-10-09: token=27904 faulted every art try, even
+    // the known-good cty001 control). Same pattern as the framework's GameAssetsService; Collision-and-Navmesh-Bake.md.
+    private object? _cancelSource;
+    private MethodInfo? _miCreateToken;
 
     private object? _task;                                            // pending UniTask<T>
     private Kind _taskKind;
@@ -59,15 +64,14 @@ internal sealed partial class SceneMapLoader
                 for (int k = 0; k < KindTypes.Length; k++)
                     try { slots[k] = m.MakeGenericMethod(KindTypes[k]); } catch { }
             }
-            // ZCancelSource.NeverCancelToken — what the game's own fire-and-forget loads pass; 0 if unresolvable.
-            var cancel = StellarInterop.FindType("ZUtil.ZCancelSource");
-            try { _token = cancel?.GetProperty("NeverCancelToken", BindingFlags.Public | BindingFlags.Static)?.GetValue(null) is uint t ? t : 0u; } catch { }
+            RentCancelSource();
 
             _resolved = true;
-            _resolveFailed = _miRdAddr == null || _loadByAddr[0] == null || _release[0] == null;
+            _resolveFailed = _miRdAddr == null || _loadByAddr[0] == null || _release[0] == null
+                             || _cancelSource == null || _miCreateToken == null;
             _info($"[EntityInspector][MapTex] loader resolve rdAddr={_miRdAddr != null} sceneAddr={_miSceneAddr != null} " +
                   $"loadAddr={Slots(_loadByAddr)} loadStr={Slots(_loadByString)} release={Slots(_release)} " +
-                  $"curLayer={_piCurLayer != null} token={_token}");
+                  $"curLayer={_piCurLayer != null} token={(_cancelSource != null && _miCreateToken != null ? "rented" : "MISSING")}");
             return !_resolveFailed;
         }
         catch (Exception ex)
@@ -75,6 +79,36 @@ internal sealed partial class SceneMapLoader
             WarnOnce("resolve", $"scene-map loader resolve error: {ex.Message}");
             _resolved = true; _resolveFailed = true; return false;
         }
+    }
+
+    // Idempotent: a Resolve that bailed early (types not up yet) retries — never re-rent (would orphan the prior rent).
+    private void RentCancelSource()
+    {
+        if (_cancelSource != null) return;
+        var cs = StellarInterop.FindType("ZUtil.ZCancelSource");
+        if (cs == null) { WarnOnce("token", "ZUtil.ZCancelSource not found — loads can't get a token"); return; }
+        try
+        {
+            _cancelSource = cs.GetMethod("Rent", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static,
+                                         null, Type.EmptyTypes, null)?.Invoke(null, null);
+        }
+        catch (Exception ex) { WarnOnce("token", $"ZCancelSource.Rent() threw: {ex.InnerException?.Message ?? ex.Message}"); return; }
+        if (_cancelSource == null) { WarnOnce("token", "ZCancelSource.Rent() returned null"); return; }
+        _miCreateToken = cs.GetMethod("CreateToken", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance,
+                                      null, Type.EmptyTypes, null);
+        if (_miCreateToken == null) WarnOnce("token", "ZCancelSource.CreateToken() not found");
+    }
+
+    // A fresh single-use token for one load; 0 = mint failed (logged once — the caller treats it as a failed start).
+    private uint MintToken()
+    {
+        try
+        {
+            if (_miCreateToken?.Invoke(_cancelSource, null) is uint t && t != 0) return t;
+            WarnOnce("mint", "ZCancelSource.CreateToken() returned 0");
+        }
+        catch (Exception ex) { WarnOnce("mint", $"ZCancelSource.CreateToken() threw: {ex.InnerException?.Message ?? ex.Message}"); }
+        return 0;
     }
 
     // "OTS" style flags: which of Object/Texture2D/Sprite closed OK ('-' = failed).
@@ -115,7 +149,9 @@ internal sealed partial class SceneMapLoader
         {
             var m = addr is string ? _loadByString[(int)kind] : _loadByAddr[(int)kind];
             if (m == null) return $"no LoadAssetAsync<{kind}> ({(addr is string ? "string" : "ZResAddress")} overload)";
-            var task = m.Invoke(_loader, new object[] { addr, _token, 0, allowFail });
+            uint token = MintToken();   // per load — region data, every art try, and the control test's own loader
+            if (token == 0) return "no cancel token (CreateToken failed)";
+            var task = m.Invoke(_loader, new object[] { addr, token, 0, allowFail });
             if (task == null) return "LoadAssetAsync returned null";
             _task = task; _taskKind = kind; _ticks = 0;
             return null;

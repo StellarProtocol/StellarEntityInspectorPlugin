@@ -58,6 +58,7 @@ internal sealed partial class SceneMapLoader : ILocationBase, IDisposable
     private readonly Queue<ArtTry> _artCandidates = new();
     private ArtTry _curTry;
     private string _sceneAddr = "?";
+    private string? _lastFault;   // previous art try's fault message — repeats log as "(same as previous)"
 
     /// <summary>Make <paramref name="sceneId"/> the scene whose art is loaded. No-op when it already is (loading, ready
     /// or failed — a failed scene is retried only after <see cref="DropBase"/>).</summary>
@@ -157,6 +158,7 @@ internal sealed partial class SceneMapLoader : ILocationBase, IDisposable
     {
         _rp = rp;
         _artCandidates.Clear();
+        _lastFault = null;   // each scene's first fault logs in full
         var sceneAddr = Call(_miSceneAddr, SceneId, _layer);
         _sceneAddr = LocationMapSource.AddressString(sceneAddr);
         bool haveSceneAddr = sceneAddr != null && _sceneAddr.Length > 1;
@@ -212,7 +214,13 @@ internal sealed partial class SceneMapLoader : ILocationBase, IDisposable
             var found = ExtractTexture(result, out var note);
             var tex = found;
             string why;
-            if (tex == null) why = err != null ? $"{StatusWord(status)}: {err}" : note;
+            if (tex == null && err != null)
+            {
+                // The ladder retries one root cause many times; the first message is the diagnosis, repeats are noise.
+                why = err == _lastFault ? $"{StatusWord(status)} (same as previous)" : $"{StatusWord(status)}: {err}";
+                _lastFault = err;
+            }
+            else if (tex == null) why = note;
             else if (tex.width <= 1 || tex.height <= 1) { why = "texture too small"; tex = null; }
             else if (!LocationMapSource.Readback(tex, LocationMapSource.MaxReadback, m => WarnOnce("readback", m),
                          out var buf, out int w, out int h)) { why = "readback failed"; tex = null; }
