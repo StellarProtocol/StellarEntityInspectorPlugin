@@ -104,6 +104,7 @@ public sealed partial class Plugin : IStellarPlugin, Stellar.PluginContracts.IFr
         _frozen = null;                                // a live Open() leaves any frozen-session view
         _gearDetailWindow.SetVisible(false);           // retargeting must not leave a stale item popup
         _target = entity;
+        ResetLocationView();                        // new subject: the map starts from the saved preset again
         VerticalRotationPatch.Activate(true);
         VerticalRotationPatch.ResetPitch();
         RebuildSnapshots();                            // before subscribe: the broadcast snapshot decides which ids need polling
@@ -154,6 +155,7 @@ public sealed partial class Plugin : IStellarPlugin, Stellar.PluginContracts.IFr
         TickAutoOpenFlag(dt);
         if (!_window.IsShown) return;
         VerticalRotationPatch.ApplyPitch(); // per-tick ZModel2RTMono write (after ZModel2RT.Update clamps)
+        TickLocationView();                 // per frame: a map drag/scroll re-renders now, not at 10 Hz
         _accum += dt;
         if (_accum < SnapshotIntervalS) return;
         _accum = 0f;

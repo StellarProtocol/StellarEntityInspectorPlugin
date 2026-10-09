@@ -4,7 +4,7 @@ using UnityEngine;
 
 namespace Stellar.EntityInspector;
 
-// Location tab — raster painting: crop the cached map art around the marker(s) (zoom) or take all of it (full map),
+// Location tab — raster painting: crop the view window (Plugin.Location.View.cs) out of the cached map art,
 // resample it into the MinimapRaster, draw you (white dot) + the target (amber dot — position only, no facing).
 // Also owns the raster's pane-driven sizing. Split out of Plugin.Location.cs, which decides WHERE the
 // target is and WHICH base art to use.
@@ -18,8 +18,8 @@ public sealed partial class Plugin
     private const int LocRasterMin = 160, LocRasterMax = 1024;   // raster px clamp per axis (1024² = 4 MB × 2 buffers)
     private const int LocResizeStep = 8;         // rebuild at once when the pane changed by ≥ this many px …
     private const long LocResizeSettleMs = 200;  // … or once a smaller change has held this long (drags fire per frame)
-    private const float MinSpanWorld = 120f;     // never zoom in tighter than this many world units (show surroundings)
-    private const float SpanPad = 1.5f;          // crop = separation × this, so both markers sit well inside the edge
+    private const float MinSpanWorld = 120f;     // Focus never starts tighter than this many world units (show surroundings)
+    private const float SpanPad = 1.5f;          // Focus span = separation × this
 
     private static readonly ColorRgba LocSelfCol   = new(1f, 1f, 1f, 1f);
     private static readonly ColorRgba LocTargetCol = new(0.98f, 0.72f, 0.20f, 1f);   // amber
@@ -57,31 +57,19 @@ public sealed partial class Plugin
         return Compass8[i];
     }
 
-    // ZOOM: crop a square window of the cached map art centred on the midpoint of the two markers, sized to fit both
-    // (≥ MinSpanWorld, ≤ the art), clamped inside the art. FULL: the whole art — a square window of side max(W, H)
-    // centred on it, so a non-square art is letterboxed (Resample paints outside-the-art as backdrop) rather than
-    // stretched. Either way the window is resampled into a side = min(rasterW, rasterH) square centred in the raster.
-    // With no self marker the caller passes su == tu, so the crop centres on the target alone.
-    private void DrawLocation(ILocationBase src, Vector2 su, Vector2 tu, bool drawSelf, bool full)
+    // Crop the view window (Plugin.Location.View.cs: full art, Focus around the target, or wherever the user panned /
+    // zoomed) out of the cached map art and resample it into a side = min(rasterW, rasterH) square centred in the raster.
+    // Windows reaching past a non-square art are letterboxed (Resample paints outside-the-art as backdrop), never
+    // stretched. With no self marker the caller passes su == tu.
+    private void DrawLocation(ILocationBase src, Vector2 su, Vector2 tu, bool drawSelf)
     {
         if (_locRaster != null && (_locRaster.W != _locPxW || _locRaster.H != _locPxH))
         { _locRaster.Dispose(); _locRaster = null; }
         _locRaster ??= new MinimapRaster(_locPxW, _locPxH);
+        _drawSrc = src; _drawSu = su; _drawTu = tu; _drawSelf = drawSelf;   // kept for drag/scroll re-renders
         int W = src.BaseW, H = src.BaseH;
-        float span, left, bottom;
-        if (full)
-        {
-            span = MathF.Max(W, H);
-            left = (W - span) / 2f; bottom = (H - span) / 2f;   // ≤ 0: the letterbox margins
-        }
-        else
-        {
-            float sep = MathF.Max(MathF.Abs(su.x - tu.x), MathF.Abs(su.y - tu.y));
-            span = MathF.Max(sep * SpanPad, MinSpanWorld * src.PxPerWorld);
-            span = MathF.Min(span, MathF.Min(W, H));
-            left   = Math.Clamp((su.x + tu.x) / 2f - span / 2f, 0f, W - span);
-            bottom = Math.Clamp((su.y + tu.y) / 2f - span / 2f, 0f, H - span);
-        }
+        ResolveView(src, su, tu, out float left, out float bottom, out float span);
+        bool full = span >= FullSpan(src) - 0.5f;
 
         int side = Math.Min(_locRaster.W, _locRaster.H);
         int ox = (_locRaster.W - side) / 2, oy = (_locRaster.H - side) / 2;   // the square's top-left, canvas coords
