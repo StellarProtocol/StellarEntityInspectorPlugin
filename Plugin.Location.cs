@@ -31,6 +31,12 @@ public sealed partial class Plugin
     private SceneMapLoader? _sceneMap;   // one other-scene base at a time (plus the radar's current-scene base above)
     private SceneMapLoader SceneMap => _sceneMap ??=
         new SceneMapLoader(m => _services.Log.Info(m), m => _services.Log.Warning(m));
+    // One-shot per session CONTROL TEST (log only, never drawn): the first time the radar path serves the tab, the
+    // cross-scene loader is ALSO run for our own scene — does the loader path work at all for known-good art (cty001),
+    // or do only field maps fail? See Minimap-World-Projection.md §"Another scene's map (cross-scene)".
+    private SceneMapLoader? _locProbe;
+    private bool _locProbeStarted;
+    private int _locProbeScene, _locProbeLayer, _locProbeIdle;
 
     // Redraw dirty-check: last drawn base / marker pixels / yaw / marker style (NaN = force).
     private float _lastSu = float.NaN, _lastSv, _lastTu, _lastTv, _lastYaw;
@@ -76,6 +82,7 @@ public sealed partial class Plugin
         _locRaster?.Dispose(); _locRaster = null;
         _locSource?.Dispose(); _locSource = null;
         _sceneMap?.Dispose(); _sceneMap = null;
+        _locProbe?.Dispose(); _locProbe = null;
     }
 
     private void RebuildLocation()
@@ -96,6 +103,7 @@ public sealed partial class Plugin
         if (sp.X == 0f && sp.Y == 0f && sp.Z == 0f) return LocState.Unavailable;   // not in-world yet
         var self = new Vector3(sp.X, sp.Y, sp.Z);
         int curScene = CurrentSceneId();
+        TickLocationProbe(self);
 
         // ---- where is the target? (a) live / (b) social / (c) unknown ----
         bool isSelf = IsSelf, live = true;
@@ -131,11 +139,14 @@ public sealed partial class Plugin
             if (!InBase(src, su)) return LocState.Unavailable;                     // you're outside the radar's map art
             if (!InBase(src, tu)) return live ? LocState.Far : LocState.NoMap;   // target outside this region's map
             drawSelf = !isSelf;
+            StartLocationProbe(curScene);
         }
         else
         {
             var sm = SceneMap;
-            sm.Request(scene, 0, sameScene);
+            // CurLayerId is OUR scene's layer; for another scene the loader also falls back to layer 0.
+            int layer = sm.ReadCurLayer();
+            sm.Request(scene, layer < 0 ? 0 : layer, sameScene);
             sm.Tick(target);
             if (sm.IsLoading) return LocState.Loading;
             if (!sm.IsReady) return LocState.NoMap;
@@ -193,6 +204,36 @@ public sealed partial class Plugin
         if (s.ReceivedAtMs <= 0 || now <= 0) return "";
         long mins = Math.Max(0L, now - s.ReceivedAtMs) / 60_000L;
         return mins < 1 ? _loc.T("ei.location.asOfNow") : _loc.TFormat("ei.location.asOf", mins);
+    }
+
+    // Control test start (see _locProbe): once per session, on the first radar-served view.
+    private void StartLocationProbe(int curScene)
+    {
+        if (_locProbeStarted || curScene == 0) return;
+        _locProbeStarted = true;
+        _locProbe = new SceneMapLoader(m => _services.Log.Info(m), m => _services.Log.Warning(m));
+        _locProbeScene = curScene;
+        _locProbeLayer = _locProbe.ReadCurLayer();
+        _locProbe.LogAddressPair(curScene, _locProbeLayer);
+        _locProbe.Request(curScene, Math.Max(0, _locProbeLayer), isCurrentScene: true);
+    }
+
+    // Polled from the tab tick like the real loader (never blocking); logs its result once, then frees everything.
+    private void TickLocationProbe(Vector3 self)
+    {
+        var p = _locProbe;
+        if (p == null) return;
+        if (p.IsIdle)   // resolve wasn't ready — retry a while, then give up
+        {
+            if (++_locProbeIdle > 50) { _services.Log.Info("[EntityInspector][MapTex] control test gave up (loader never resolved)"); p.Dispose(); _locProbe = null; return; }
+            p.Request(_locProbeScene, Math.Max(0, _locProbeLayer), isCurrentScene: true);
+            return;
+        }
+        p.Tick(self);
+        if (p.IsLoading) return;
+        _services.Log.Info($"[EntityInspector][MapTex] control test done scene={_locProbeScene} layer={_locProbeLayer} " +
+                           $"ready={p.IsReady} read={p.BaseW}x{p.BaseH}");
+        p.Dispose(); _locProbe = null;
     }
 
     private static bool Near(float a, float b) => Math.Abs(a - b) < 0.25f;   // NaN last ⇒ false ⇒ redraw
