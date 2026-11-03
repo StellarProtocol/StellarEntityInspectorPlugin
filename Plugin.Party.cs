@@ -78,6 +78,11 @@ public sealed partial class Plugin
     // the fill) → [prof icon][name + Leader/Viewing chips][Lv][status dot][map]. Level, dot and map are fixed-width
     // cells so nothing shifts between online/offline or chip states. The 22 px strut + the Selectable's 4+4 = 30 px.
     // The viewed member's tile gets a gold 1 px outline (overlaid, never resizes the tile).
+    // Pitch = 30 tile + 2 spacer + 2 (ListElement's own slot gap) = 34 px. ⚠️ The wrapper column's gap must be 0.01f:
+    // ColumnElement Gap 0 means the DEFAULT SectionGap (12), which was the old ~17 px between tiles.
+    // Status dot = PLAIN Text "●" (legacy uGUI Text, OS font with fallback — as Maestro's link dot). Bold/FontSize
+    // route it to the TMP styled path, whose one-face Noto Sans has no U+25CF → drew nothing. (Plain path ignores
+    // FontSize, so it's the body 14 px.)
     private HudElement BuildPartyRow(int idx) => new ColumnElement(new HudElement[]
     {
         new BubbleElement(new SelectableElement(new RowElement(new HudElement[]
@@ -93,15 +98,15 @@ public sealed partial class Plugin
                 }, Gap: 6f), Weight: 1f),
                 new CellElement(new TextElement(() => _ptLevel[idx] ?? "", MutedCol, NoWrap: true), Width: 56f),
                 new CellElement(new TextElement(() => "●", () => _ptOnline[idx] ? PartyOnline : MutedCol(),
-                    Align: TextAlign.Center, NoWrap: true, FontSize: 10) { Bold = true }, Width: 14f),
+                    Align: TextAlign.Center, NoWrap: true), Width: 16f),
                 new CellElement(new TextElement(() => _ptMap[idx] ?? "", MutedCol, NoWrap: true), Width: 140f),
             }, Gap: 8f), () => OnPartyRowClick(idx)))
         {
             FillColorFn = PartyTileColor, CornerRadius = 4f, PaddingX = 0f, PaddingY = 0f,
             OutlineColorFn = () => _ptViewing[idx] ? AccentCol() : null,
         },
-        new SpacerElement(Height: 3f),
-    }, Gap: 0f);
+        new SpacerElement(Height: 2f),
+    }, Gap: 0.01f);
 
     // Inline status chip: bold coloured text on a 22% pill of the same colour (house StatusChip "on" look). It hugs
     // its label (a Bubble in a Row) because the translations differ a lot in length; the strut pins the height.
