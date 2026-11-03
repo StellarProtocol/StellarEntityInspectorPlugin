@@ -37,7 +37,7 @@ public sealed partial class Plugin
     };
     private const int ElementCount = 9;   // All/Fire/Ice/Forest/Thunder/Wind/Rock/Light/Dark, ×10 apart
 
-    private const int MaxOverviewRows = 116;   // 66 fixed + up to 46 elemental + 4 identity (review: avoid silent truncation)
+    private const int MaxOverviewRows = 117;   // 66 fixed + up to 46 elemental + 5 identity (review: avoid silent truncation)
     private readonly List<string> _ovLabels = new(MaxOverviewRows);
     private readonly List<string> _ovValues = new(MaxOverviewRows);
 
@@ -88,13 +88,24 @@ public sealed partial class Plugin
     // mask 0 = ALL sections, and our wire tap caches that reply — so these populate for any carded
     // player regardless of distance (the one Overview block far players DO get). Value-gated: thin-mask
     // replies (nameplate queries) and guildless/solo/hidden players render no row at all.
+    // Party: "{num} / {max}" from the decoded team_data when present (Plugin.Party.cs), else the old member count
+    // from team_num alone; plus the leader's name when the roster carries the leader.
     private void AddIdentitySection()
     {
-        if (_socialSnap is not { Identity: var id }) return;
-        if (id.Guild.Length == 0 && id.PartySize == 0 && id.MasterScore == 0) return;
+        if (_socialSnap is not { Identity: var id } snap) return;
+        var party = HasParty(snap.Party) ? snap.Party : null;
+        if (id.Guild.Length == 0 && id.PartySize == 0 && id.MasterScore == 0 && party is null) return;
         AddSectionHeader("ei.section.identity");
         if (id.Guild.Length > 0) { _ovLabels.Add(_loc.T("ei.field.guild")); _ovValues.Add(id.Guild); }
-        if (id.PartySize > 0)
+        if (party is not null)
+        {
+            int num = party.TeamNum > 0 ? party.TeamNum : party.Members.Count;
+            _ovLabels.Add(_loc.T("ei.field.party")); _ovValues.Add(_loc.TFormat("ei.field.partyCount", num, PartyMax(party)));
+            foreach (var m in party.Members)
+                if (m.CharId == party.LeaderId && m.Name.Length > 0)
+                { _ovLabels.Add(_loc.T("ei.field.partyLeader")); _ovValues.Add(m.Name); break; }
+        }
+        else if (id.PartySize > 0)
         { _ovLabels.Add(_loc.T("ei.field.party")); _ovValues.Add(_loc.TFormat("ei.field.members", id.PartySize)); }
         if (id.MasterScore > 0)
         { _ovLabels.Add(_loc.T("ei.field.masterScore")); _ovValues.Add(id.MasterScore.ToString("N0", CultureInfo.InvariantCulture)); }

@@ -33,7 +33,7 @@ public sealed partial class Plugin : IStellarPlugin, Stellar.PluginContracts.IFr
     // no config for lighting anymore. (See PortraitModelHost.Lighting.cs: 0..4 = the custom profiles; 4 = Vivid.)
     private const int VividPreset = 4;
 
-    private enum Tab { Overview, Gear, SkillBook, Wardrobe, Location }
+    private enum Tab { Overview, Gear, SkillBook, Wardrobe, Location, Party }
 
     public Plugin(IPluginServices services)
     {
@@ -192,6 +192,7 @@ public sealed partial class Plugin : IStellarPlugin, Stellar.PluginContracts.IFr
             else if (tab == "skills") _tab = Tab.SkillBook;
             else if (tab == "wardrobe") _tab = Tab.Wardrobe;
             else if (tab == "location") _tab = Tab.Location;
+            else if (tab == "party") _tab = Tab.Party;
             _services.Log.Info($"[EntityInspector] inspect-self.flag consumed — opening self (tab={_tab})");
             Open(self);
         }
@@ -224,6 +225,7 @@ public sealed partial class Plugin : IStellarPlugin, Stellar.PluginContracts.IFr
             _ovLabels.Clear(); _ovValues.Clear(); _imagines.Clear(); _skillRows.Clear(); _wardrobeRows.Clear();
             _lastSkillSnapshot = null; _lastFashionSnapshot = null;   // keep the dirty checks honest after a clear
             _locState = LocState.None;
+            SetPartyState(PartyState.Loading);
             System.Array.Clear(_gearCards, 0, _gearCards.Length);
             return;
         }
@@ -239,6 +241,7 @@ public sealed partial class Plugin : IStellarPlugin, Stellar.PluginContracts.IFr
             case Tab.SkillBook: RebuildSkillBook(); break;
             case Tab.Wardrobe:  RebuildWardrobe();  break;
             case Tab.Location:  RebuildLocation();  break;
+            case Tab.Party:     RebuildParty();     break;
         }
     }
 
@@ -269,6 +272,7 @@ public sealed partial class Plugin : IStellarPlugin, Stellar.PluginContracts.IFr
     {
         _tab = t;
         _gearDetailWindow.SetVisible(false);           // popup belongs to the Gear tab's context
+        if (t == Tab.Party) RequestPartyRefresh();     // a current roster on every tab open (floored per target)
         RebuildSnapshots();
     }
 

@@ -57,6 +57,7 @@ public sealed partial class Plugin
             new ConditionalElement(() => _tab == Tab.SkillBook, BuildSkillBookBody(), Fill: true),
             new ConditionalElement(() => _tab == Tab.Wardrobe,  BuildWardrobeBody(),  Fill: true),
             new ConditionalElement(() => _tab == Tab.Location,  BuildLocationBody(),  Fill: true),
+            new ConditionalElement(() => _tab == Tab.Party,     BuildPartyBody(),     Fill: true),
         }, Gap: 6f),
     }, Gap: 0f);
 
@@ -126,6 +127,7 @@ public sealed partial class Plugin
         new ButtonElement(() => _loc.T("ei.tab.skills"),   () => SelectTab(Tab.SkillBook), Active: () => _tab == Tab.SkillBook),
         new ButtonElement(() => _loc.T("ei.tab.wardrobe"), () => SelectTab(Tab.Wardrobe),  Active: () => _tab == Tab.Wardrobe),
         new ButtonElement(() => _loc.T("ei.tab.location"), () => SelectTab(Tab.Location),  Active: () => _tab == Tab.Location),
+        new ButtonElement(() => _loc.T("ei.tab.party"),    () => SelectTab(Tab.Party),     Active: () => _tab == Tab.Party),
     }, Gap: 4f);
 
     // Self-only secondary stats; "—" for others (not broadcast). Two rows to stay compact.

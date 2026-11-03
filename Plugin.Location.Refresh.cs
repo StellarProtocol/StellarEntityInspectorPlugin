@@ -41,14 +41,7 @@ public sealed partial class Plugin
     private void TickLocationRefresh()
     {
         long now = Environment.TickCount64;
-        if (_refreshTarget != _target)
-        {
-            _refreshTarget = _target;
-            _refreshLastMs = NeverMs;
-            _refreshFirstMs = _refreshAwaitSince = long.MinValue;
-            _refreshSeenAt = LocTargetReceivedAt;
-            _refreshEligible = false;
-        }
+        SyncRefreshTarget();
 
         long rx = LocTargetReceivedAt;
         if (rx != _refreshSeenAt)
@@ -63,7 +56,18 @@ public sealed partial class Plugin
         bool entered = eligible && !_refreshEligible;
         _refreshEligible = eligible;
         if (!eligible) return;
-        if (entered || now - _refreshLastMs >= LocAutoRefreshMs) TryRequestLocation(now);
+        if (entered || now - _refreshLastMs >= LocAutoRefreshMs) TryRequestSocial(now);
+    }
+
+    // New target ⇒ fresh floor/await state (shared by the Location and Party tabs: one request serves both).
+    private void SyncRefreshTarget()
+    {
+        if (_refreshTarget == _target) return;
+        _refreshTarget = _target;
+        _refreshLastMs = NeverMs;
+        _refreshFirstMs = _refreshAwaitSince = long.MinValue;
+        _refreshSeenAt = LocTargetReceivedAt;
+        _refreshEligible = false;
     }
 
     // Manual "Refresh" — same floor; a click during the cooldown is simply ignored (the button shows it disabled).
@@ -71,10 +75,31 @@ public sealed partial class Plugin
     {
         if (!CanShowRefresh) return;
         if (_refreshTarget != _target) TickLocationRefresh();
-        TryRequestLocation(Environment.TickCount64);
+        TryRequestSocial(Environment.TickCount64);
     }
 
-    private void TryRequestLocation(long now)
+    // Party tab: the roster (team_data) only arrives in a full-mask reply, for near AND far players alike (it's never
+    // broadcast), so unlike the Location tab this also asks for in-AOI targets. RequestPartyRefresh = one request now
+    // (tab opened / member clicked); TickPartyRefresh = keep asking every LocAutoRefreshMs while no Party is cached.
+    // Both go through the same per-target floor as the Location requests.
+    private bool CanRequestParty => _target.IsPlayer && !IsFrozen;
+
+    private void RequestPartyRefresh()
+    {
+        if (!CanRequestParty) return;
+        SyncRefreshTarget();
+        TryRequestSocial(Environment.TickCount64);
+    }
+
+    private void TickPartyRefresh()
+    {
+        if (!CanRequestParty) return;
+        SyncRefreshTarget();
+        long now = Environment.TickCount64;
+        if (now - _refreshLastMs >= LocAutoRefreshMs) TryRequestSocial(now);
+    }
+
+    private void TryRequestSocial(long now)
     {
         if (now - _refreshLastMs < LocRefreshFloorMs) return;
         _refreshLastMs = now;
@@ -82,7 +107,7 @@ public sealed partial class Plugin
         _refreshAwaitSince = now;
         _refreshBaseline = LocTargetReceivedAt;
         try { _services.EntityDetail.RefreshSocialSnapshot(_target); }
-        catch (Exception ex) { _services.Log.Warning($"[EntityInspector][Location] refresh failed: {ex.Message}"); }
+        catch (Exception ex) { _services.Log.Warning($"[EntityInspector][Social] refresh failed: {ex.Message}"); }
     }
 
     private string RefreshLabel() => _loc.T(RefreshAwaiting ? "ei.location.refreshing" : "ei.location.refresh");
