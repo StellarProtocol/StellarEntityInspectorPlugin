@@ -50,52 +50,6 @@ public sealed partial class Plugin
     // config "location" / "fullMap"; the live view (pan/zoom) is in Plugin.Location.View.cs.
     private bool _locFullMap = true;
 
-    // The map is a RenderTextureHostElement inside a Fill conditional: the host stretches to the column width and
-    // takes the leftover body height (flexibleHeight), so it scales with the window instead of overflowing at a fixed
-    // size. Its OnViewportResize drives the raster size (Plugin.Location.Draw.cs); drag pans, the wheel zooms
-    // (Plugin.Location.View.cs). OnPan stays null so Shift+drag pans too. The host claims the press, so dragging the
-    // map never also drags the window.
-    // Toggle row + zone lines are fixed-height around it; at MinHeight 360 the host shrinks to its LocPaneMin.
-    private HudElement BuildLocationBody() => new ColumnElement(new HudElement[]
-    {
-        new ConditionalElement(() => _locState != LocState.Ok, new TextElement(LocStateLine, MutedCol)),
-        // View presets need the map; Refresh (far targets only) shows with or without it.
-        new ConditionalElement(() => _locState == LocState.Ok || CanShowRefresh,
-            new RowElement(new HudElement[]
-            {
-                new ConditionalElement(() => _locState == LocState.Ok, new RowElement(new HudElement[]
-                {
-                    new ButtonElement(() => _loc.T("ei.location.fullMap"), ShowFullMap, Active: () => IsFullView),
-                    new ButtonElement(() => _loc.T("ei.location.focus"), FocusTarget, Active: () => _viewFollow),
-                }, Gap: 6f)),
-                new ConditionalElement(() => CanShowRefresh,
-                    new ButtonElement(RefreshLabel, RefreshLocationNow, Enabled: RefreshEnabled)),
-                new SpacerElement(),
-            }, Gap: 6f)),
-        new ConditionalElement(() => _locState == LocState.Ok,
-            new RenderTextureHostElement(() => _locRaster?.Texture, LocPaneMin, LocPaneMin,
-                OnDrag: OnLocationDrag, OnScroll: OnLocationScroll,
-                OnViewportResize: OnLocationPaneResize),
-            Fill: true),
-        new ConditionalElement(() => _locState == LocState.Ok, new TextElement(() => _loc.T("ei.location.hint"), MutedCol)),
-        // Zone + age stay visible without art ("No map for this area" still says WHERE they are).
-        new ConditionalElement(() => _locZone.Length > 0 && ShowsZone(), new TextElement(() => _locZone)),
-        new ConditionalElement(() => _locAge.Length > 0 && ShowsZone(), new TextElement(() => _locAge, MutedCol)),
-        new ConditionalElement(() => _locState == LocState.Ok && _locLine.Length > 0, new TextElement(() => _locLine)),
-    }, Gap: 6f);
-
-    private bool ShowsZone() => _locState is LocState.Ok or LocState.NoMap or LocState.Loading;
-
-    private string LocStateLine() => _locState switch
-    {
-        LocState.Frozen      => _loc.T("ei.location.frozen"),
-        LocState.Far         => _loc.T(LocFetching ? "ei.location.fetching" : "ei.location.far"),
-        LocState.Unavailable => _loc.T("ei.location.unavailable"),
-        LocState.Loading     => _loc.T("ei.location.loading"),
-        LocState.NoMap       => _loc.T("ei.location.noMap"),
-        _                    => "",
-    };
-
     // Window closed: free the cached map art (up to 16 MB each) — re-read on the next Location view.
     private void DropLocationBase()
     {
@@ -116,7 +70,7 @@ public sealed partial class Plugin
 
     private void RebuildLocation()
     {
-        if (IsFrozen) { _locState = LocState.Frozen; return; }
+        if (IsFrozen) { _locState = LocState.Frozen; _locZone = _locAge = _locLine = ""; _locFromSocial = false; return; }
         try { _locState = UpdateLocation(); }
         catch (Exception ex)
         {
@@ -129,7 +83,7 @@ public sealed partial class Plugin
     private LocState UpdateLocation()
     {
         _locZone = _locAge = _locLine = "";
-        _locLive = false;
+        _locLive = false; _locFromSocial = false;
         var sp = _services.PlayerState.Position;
         if (sp.X == 0f && sp.Y == 0f && sp.Z == 0f) return LocState.Unavailable;   // not in-world yet
         var self = new Vector3(sp.X, sp.Y, sp.Z);
@@ -145,7 +99,7 @@ public sealed partial class Plugin
         else if (isSelf) { target = self; _locLive = true; }   // self always has a position, even if the transform read misses
         else if (_socialSnap?.Location is { } loc && loc.CurrentSceneId != 0)
         {
-            social = loc; live = false;
+            social = loc; live = false; _locFromSocial = true;
             scene = loc.CurrentSceneId;
             var p = loc.CurrentPos;
             target = new Vector3(p.X, p.Y, p.Z);
@@ -206,7 +160,7 @@ public sealed partial class Plugin
         if (isSelf) { _locLine = _loc.T("ei.location.self"); return; }
         if (!sameScene) { _locLine = ""; return; }
         float dx = target.x - self.x, dz = target.z - self.z;
-        _locLine = _loc.TFormat("ei.location.distance",
+        _locLine = _loc.TFormat("ei.location.dist",
             MathF.Sqrt(dx * dx + dz * dz).ToString("F0", CultureInfo.InvariantCulture), CompassOf(dx, dz));
     }
 
@@ -225,7 +179,7 @@ public sealed partial class Plugin
         _zoneParts.Add(_services.GameData.World.GetScene(scene) is { Name.Length: > 0 } si
             ? si.Name : "#" + scene.ToString(CultureInfo.InvariantCulture));
         if (social is { LineId: > 0 } s) _zoneParts.Add(_loc.TFormat("ei.location.line", s.LineId));
-        return string.Join("  ·  ", _zoneParts);
+        return string.Join(" · ", _zoneParts);
     }
 
     // "as of N min ago" — ReceivedAtMs and ServerNowMs share the framework's server clock; either 0 = pre-sync ⇒ omit.

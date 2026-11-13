@@ -30,7 +30,7 @@ public sealed partial class Plugin
     private bool RefreshAwaiting => _refreshAwaitSince != long.MinValue;
     private bool RefreshCooling => Environment.TickCount64 - _refreshLastMs < LocRefreshFloorMs;
     private bool CanShowRefresh => _target.IsPlayer && !IsSelf && !IsFrozen && !_locLive
-        && _locState is LocState.Ok or LocState.Far or LocState.NoMap or LocState.Loading;
+        && _locState is LocState.Ok or LocState.Far or LocState.NoMap or LocState.Loading or LocState.Unavailable;
 
     // "Fetching location…" while the first request for a target is young and nothing has arrived yet.
     private bool LocFetching => _locState == LocState.Far && _refreshTarget == _target

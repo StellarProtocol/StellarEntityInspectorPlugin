@@ -1,3 +1,4 @@
+using System;
 using System.Globalization;
 using Stellar.Abstractions.Domain;
 using Stellar.Abstractions.Domain.GameData;
@@ -5,227 +6,196 @@ using Stellar.Abstractions.Services;
 
 namespace Stellar.EntityInspector;
 
-// Window root: portrait slot + identity header + stat strip, then the tab bar and the per-tab bodies.
-// Identity/score/HP resolve for any in-AOI entity; ATK + secondary stats are self-only (the wire broadcasts
-// them as 0 for others) and read from IPlayerStats. Attr ids are local consts (plugins reference Abstractions
-// only, not Stellar.Wire's AttrTypeIds) — verified against enum_e_attr_type.proto.
+// Window root + ToolHeader (approved prototype "EntityInspector redesign", layout A):
+//   [40 px accent tile: class icon] bold Name  muted "Class · Spec"                                      (?)
+//                                   ● Nearby · live · Lv 60 · Ability Score 61,355 · Illusion-Breaking 4,675
+//   ┌ PORTRAIT ─ [Weapon: On] ┐ ┌ (Overview)(Gear)(Skills)(Wardrobe)(Location)(Party) ┐
+//   │ 3D model · HP · imagines │ │ the selected tab's panels                            │
+// The status line has ONE shared builder for its three cases (nearby / far / session view); every string the header shows
+// is rebuilt on the 10 Hz snapshot tick and only when its inputs changed, so the element Funcs are pure cache reads.
+// Attr ids are local consts (plugins reference Abstractions only) — verified against enum_e_attr_type.proto.
 public sealed partial class Plugin
 {
     private const int AttrLevel = 10000, AttrSeasonLevel = 10070, AttrProfessionId = 220,
                       AttrSeasonStrength = 11440;
+    private const float PortraitPanelW = 268f;
 
-    // Stat strip (label, attr id): percent ids for Crit/Haste/Luck so the strip agrees with the Overview
-    // ("41.96%", not the raw rating — ux-ui review: same datum, one format per viewport).
-    private static readonly (string Label, int Id)[] SelfStats =
+    private HudElement BuildRoot() => new ColumnElement(new HudElement[]
     {
-        ("ATK",   11330),
-        ("Crit",  11710),
-        ("Haste", 11930),
-        ("Luck",  11780),
-    };
-
-    // Two panes: LEFT = the 3D model portrait spanning the full window height; RIGHT = the info column
-    // (identity + stat strip, tab bar, per-tab body). The right body fills leftover height (Resizable window).
-    private HudElement BuildRoot() => new RowElement(new HudElement[]
-    {
-        // Left pane: the 3D portrait (flex-fills the pane height via its inherited flexibleHeight) with a
-        // "Show Weapon" toggle pinned beneath it, shown only for a player target. The toggle has no flex, so all
-        // leftover vertical space still goes to the portrait — it fills the pane as before, toggle sits below.
-        new ColumnElement(new HudElement[]
-        {
-            BuildPortrait(),                   // Plugin.Portrait.cs — tall left pane (self 3D / placeholder)
-            new ConditionalElement(() => _target.IsPlayer,
-                new RowElement(new HudElement[]
-                {
-                    new ToggleElement(() => "", () => _showWeapon, SetShowWeapon),
-                    new TextElement(() => _loc.T("ei.portrait.showWeapon"), MutedCol),
-                }, Gap: 6f)),
-        }, Gap: 6f),
-        new SpacerElement(Width: 10f),
-        new ColumnElement(new HudElement[]
-        {
-            // Frozen-session banner: shown only when rendering a snapshot routed in via IFrozenEntityViewer
-            // (the live portrait/stats are disabled in that mode). Closing the window returns to live.
-            new ConditionalElement(() => IsFrozen,
-                new TextElement(() => $"◷ Viewing session — {FrozenLabel}   ·   close to return to live",
-                    () => new ColorRgba(0.96f, 0.80f, 0.36f, 1f))),
-            BuildIdentity(),
-            new SeparatorElement(),
-            BuildTabBar(),
-            new ConditionalElement(() => _tab == Tab.Overview,  BuildOverviewBody(),  Fill: true),
-            new ConditionalElement(() => _tab == Tab.Gear,      BuildGearBody(),      Fill: true),
-            new ConditionalElement(() => _tab == Tab.SkillBook, BuildSkillBookBody(), Fill: true),
-            new ConditionalElement(() => _tab == Tab.Wardrobe,  BuildWardrobeBody(),  Fill: true),
-            new ConditionalElement(() => _tab == Tab.Location,  BuildLocationBody(),  Fill: true),
-            new ConditionalElement(() => _tab == Tab.Party,     BuildPartyBody(),     Fill: true),
-        }, Gap: 6f),
-    }, Gap: 0f);
-
-    // Identity header: [prof icon] Name  Class / Level + Ability Score line / HP bar / imagine chips / stat strip.
-    private HudElement BuildIdentity() => new ColumnElement(new HudElement[]
-    {
-        // Icon + name + class all on ONE line, rendered as a SINGLE rich-text element next to the icon.
-        // Two auto-sized text elements (bold name + muted class) competed for width inside the Row's
-        // HorizontalLayoutGroup: when a long name+class overran the row the HLG shrank the name's rect and
-        // Unity computed its preferredHeight as two lines, so the whole row grew to two lines tall and the
-        // single-line icon/class centred against it → misaligned. One element = nothing to shrink; the bold
-        // name + muted class live in the string via rich text (uGUI Text.supportRichText defaults true — this
-        // plain TextElement takes the legacy Text path, which never disables it). NoWrap overflows/clips at
-        // the edge so the row stays exactly one line regardless of name/class length.
+        BuildToolHeader(),
         new RowElement(new HudElement[]
         {
-            new GameTextureElement(ProfIcon, 18, 18, () => _profUv),
-            new TextElement(() => NameClassLine(), NoWrap: true),
-        }, Gap: 6f),
-        new TextElement(() => _loc.TFormat("ei.header.levelAbility", LevelLine(), AbilityScoreLine()), MutedCol),
-        new BarElement(HpFraction, new ColorRgba(0.24f, 0.62f, 0.40f, 1f), Label: HpLine)
-            { LabelInside = true, Height = 20f, LabelColor = new ColorRgba(1f, 1f, 1f, 1f) },
-        // One imagine per line: real imagine names (~28 chars) can never fit two-abreast in the info
-        // column, and name/stars as SEPARATE elements means a squeezed name wraps alone while the star
-        // block stays intact (ux-ui review recommendation, measured).
-        BuildImagineChip(0),
-        BuildImagineChip(1),
-        BuildStatStrip(),
-    }, Gap: 3f);
+            new CellElement(BuildPortraitPanel(), Width: PortraitPanelW),
+            new CellElement(new ColumnElement(new HudElement[] { BuildTabTrack(), BuildTabBodies() }, Gap: PanelGap), Weight: 1f),
+        }, Gap: PanelGap),
+    }, Gap: 10f);
 
-    private HudElement BuildImagineChip(int slot) => new RowElement(new HudElement[]
+    // ToolHeader: 40 px accent tile · bold name + muted class/spec over the live status line · the round "?".
+    private HudElement BuildToolHeader() => new RowElement(new HudElement[]
     {
-        new GameTextureElement(() => ImagineIcon(slot), 16, 16, () => _imgUv[slot]),
-        new TextElement(() => slot < _imagines.Count ? _imagines[slot].Name : "", MutedCol),
-        new TextElement(() => slot < _imagines.Count ? _imagines[slot].Stars : ""),
-    }, Gap: 6f);
+        HeaderIconTile(),
+        new CellElement(new ColumnElement(new HudElement[]
+        {
+            new RowElement(new HudElement[]
+            {
+                new TextElement(() => _hdrName, Color: () => TextColor(), Emphasis: true, NoWrap: true),
+                new CellElement(new TextElement(() => _hdrClass, Color: () => MutedColor(), NoWrap: true) { Ellipsize = true },
+                    Weight: 1f),
+            }, Gap: 8f),
+            BuildStatusLine(),
+        }, Gap: 2f), Weight: 1f),
+        HelpButton(),
+    }, Gap: 10f);
 
-    // ---- header icon + chip state (Funcs run per-frame: cache-lookup only, no allocation) ----
+    // Status line: [● dot] bold coloured main part + muted tail. The dot is PLAIN text "●" (legacy uGUI Text with OS
+    // font fallback — the bold/TMP path's Noto Sans has no U+25CF and draws nothing, Party tab finding).
+    private HudElement BuildStatusLine() => new RowElement(new HudElement[]
+    {
+        new ConditionalElement(() => _statusKind != StatusKind.Session, new RowElement(new HudElement[]
+        {
+            new TextElement(() => "●", Color: StatusMainColor, NoWrap: true),
+            new SpacerElement(4f, 0f),
+        }, Gap: 0.01f)),
+        new TextElement(() => _statusMain, Color: StatusMainColor, NoWrap: true, FontSize: 13) { Bold = true },
+        new CellElement(new TextElement(() => _statusTail, Color: () => MutedColor(), NoWrap: true) { Ellipsize = true },
+            Weight: 1f),
+    }, Gap: 0.01f);
+
+    private enum StatusKind : byte { Nearby, Far, Session }
+    private StatusKind _statusKind;
+    private string _statusMain = "", _statusTail = "";
+    private string _hdrName = "", _hdrClass = "";
+
+    private ColorRgba? StatusMainColor() => _statusKind switch
+    {
+        StatusKind.Nearby => SuccessColor(),
+        StatusKind.Far    => CautionColor(),
+        _                 => AccentColor(),
+    };
+
+    // Inputs of the last status/identity build (rebuild only when one changes — no per-tick string building).
+    private StatusKind _stKind = (StatusKind)255;
+    private long _stLvl = -1, _stSeasonLvl = -1, _stFp = -1, _stSeason = -1, _stAgeMin = long.MinValue;
+    private string? _stSession, _stName;
+    private int _stProf = -1, _stSub = -1;
+    private object? _stLang;
+
+    private void RebuildHeader()
+    {
+        var kind = IsFrozen ? StatusKind.Session : _isRemote ? StatusKind.Far : StatusKind.Nearby;
+        long lvl = LevelValue(), seasonLvl = AttrOr(AttrSeasonLevel, 0), fp = FightPointValue(),
+             season = AttrOr(AttrSeasonStrength, 0), age = kind == StatusKind.Far ? ProfileAgeMinutes() : -1;
+        var lang = _loc.T("ei.status.nearby");   // a cached catalog string: a new reference = the language changed
+        var name = NameLine();
+        int prof = ProfessionValue(), sub = SpecValue();
+
+        if (!ReferenceEquals(name, _stName) || prof != _stProf || sub != _stSub || !ReferenceEquals(lang, _stLang))
+        {
+            _stName = name; _stProf = prof; _stSub = sub;
+            _hdrName = name;
+            _hdrClass = ClassLine(prof, sub);
+        }
+        if (kind == _stKind && lvl == _stLvl && seasonLvl == _stSeasonLvl && fp == _stFp && season == _stSeason
+            && age == _stAgeMin && ReferenceEquals(FrozenLabel, _stSession) && ReferenceEquals(lang, _stLang)) return;
+        _stKind = kind; _stLvl = lvl; _stSeasonLvl = seasonLvl; _stFp = fp; _stSeason = season; _stAgeMin = age;
+        _stSession = FrozenLabel; _stLang = lang;
+
+        _statusKind = kind;
+        var ci = CultureInfo.InvariantCulture;
+        var lv = _loc.TFormat("ei.status.lv", seasonLvl > 0
+            ? lvl.ToString(ci) + " (+" + seasonLvl.ToString(ci) + ")" : lvl.ToString(ci));
+        var score = fp.ToString("N0", ci);
+        switch (kind)
+        {
+            case StatusKind.Session:
+                _statusMain = _loc.TFormat("ei.status.session", FrozenLabel);
+                _statusTail = " · " + _loc.T("ei.status.sessionTail");
+                break;
+            case StatusKind.Far:
+                _statusMain = age < 0 ? _loc.T("ei.status.far")
+                            : age == 0 ? _loc.T("ei.status.farNow")
+                            : _loc.TFormat("ei.status.farAge", age);
+                _statusTail = " · " + lv + " · " + score;
+                break;
+            default:
+                _statusMain = _loc.T("ei.status.nearby");
+                _statusTail = " · " + lv + " · " + _loc.TFormat("ei.status.ability", score)
+                            + (season > 0 ? " · " + _loc.TFormat("ei.status.illusion", season.ToString("N0", ci)) : "");
+                break;
+        }
+    }
+
+    // Age of the cached profile reply in whole minutes (its location stamp — the one reply field the framework stamps);
+    // -1 when no stamped reply exists or the server clock isn't synced yet.
+    private long ProfileAgeMinutes()
+    {
+        long rx = _socialSnap?.Location?.ReceivedAtMs ?? 0, now = _services.CombatSnapshot.ServerNowMs;
+        if (rx <= 0 || now <= 0) return -1;
+        return Math.Max(0L, now - rx) / 60_000L;
+    }
+
+    // ---- header icon (Funcs run per refresh: cache lookup only, no allocation) ----
 
     private UvRect _profUv = new(0f, 0f, 1f, 1f);
     private object? ProfIcon()
     {
-        var profId = (int)AttrOr(AttrProfessionId, IsSelf ? _services.PlayerState.Profession : 0);
+        var profId = ProfessionValue();
         return profId > 0 ? _services.GameAssets.LoadProfessionIcon(profId, out _profUv) : null;
-    }
-
-    private readonly UvRect[] _imgUv = { new(0f, 0f, 1f, 1f), new(0f, 0f, 1f, 1f) };
-    private object? ImagineIcon(int slot)
-    {
-        if (slot >= _imagines.Count) return null;
-        return _services.GameAssets.LoadImagineIcon(_imagines[slot].SkillId, out _imgUv[slot]);
-    }
-
-    private float HpFraction()
-    {
-        var v = TargetVitals();
-        if (v.IsKnown && v.MaxHp > 0) return (float)v.Hp / v.MaxHp;
-        if (IsSelf && _services.PlayerState.MaxHealth > 0)
-            return (float)_services.PlayerState.Health / _services.PlayerState.MaxHealth;
-        return 0f;
-    }
-
-    private HudElement BuildTabBar() => new RowElement(new HudElement[]
-    {
-        new ButtonElement(() => _loc.T("ei.tab.overview"), () => SelectTab(Tab.Overview),  Active: () => _tab == Tab.Overview),
-        new ButtonElement(() => _loc.T("ei.tab.gear"),     () => SelectTab(Tab.Gear),      Active: () => _tab == Tab.Gear),
-        new ButtonElement(() => _loc.T("ei.tab.skills"),   () => SelectTab(Tab.SkillBook), Active: () => _tab == Tab.SkillBook),
-        new ButtonElement(() => _loc.T("ei.tab.wardrobe"), () => SelectTab(Tab.Wardrobe),  Active: () => _tab == Tab.Wardrobe),
-        new ButtonElement(() => _loc.T("ei.tab.location"), () => SelectTab(Tab.Location),  Active: () => _tab == Tab.Location),
-        new ButtonElement(() => _loc.T("ei.tab.party"),    () => SelectTab(Tab.Party),     Active: () => _tab == Tab.Party),
-    }, Gap: 4f);
-
-    // Self-only secondary stats; "—" for others (not broadcast). Two rows to stay compact.
-    private HudElement BuildStatStrip() => new RowElement(new HudElement[]
-    {
-        new TextElement(() => StatLine(SelfStats[0]), MutedCol),  // ATK
-        new TextElement(() => StatLine(SelfStats[1]), MutedCol),  // Crit
-        new TextElement(() => StatLine(SelfStats[2]), MutedCol),  // Haste
-        new TextElement(() => StatLine(SelfStats[3]), MutedCol),  // Luck
-    }, Gap: 10f);
-
-    private string StatLine((string Label, int Id) s)
-    {
-        var nt = _services.GameData.Combat.GetAttribute(s.Id)?.NumType ?? -1;
-        return TryAttr(s.Id, out var v) ? $"{s.Label}: {FormatAttr(nt, v)}"
-             : IsSelf ? $"{s.Label}: {FormatAttr(nt, 0)}"
-             : $"{s.Label}: —";
     }
 
     // ---- identity ----
 
-    // Bold name + muted-grey class as one rich-text string (see BuildIdentity for why they can't be two
-    // elements). Muted colour is DERIVED from MutedCol() so it tracks the theme exactly — same grey the rest
-    // of the header uses. NameLine()/ProfessionLine() are reused unchanged; the markup is the only addition.
-    private string NameClassLine()
-        => $"<b>{NameLine()}</b>   <color={MutedHex()}>{ProfessionLine()}</color>";
-
-    private string MutedHex()
-    {
-        var c = MutedCol() ?? new ColorRgba(0.66f, 0.70f, 0.73f, 1f);
-        int r = (int)(c.R * 255f + 0.5f), g = (int)(c.G * 255f + 0.5f), b = (int)(c.B * 255f + 0.5f);
-        return $"#{r:X2}{g:X2}{b:X2}";
-    }
-
     private string NameLine()
     {
         var n = TargetName();
-        if (!string.IsNullOrEmpty(n)) return n!;
+        if (!string.IsNullOrEmpty(n)) return n;
         if (IsSelf && !string.IsNullOrEmpty(_services.PlayerState.Name)) return _services.PlayerState.Name!;
         if (_socialSnap is { Name.Length: > 0 } s) return s.Name;   // far player: cached social identity
-        return "Unknown";
+        return _loc.T("ei.header.unknown");
     }
 
-    private string LevelLine()
+    // Precedence: broadcast AttrLevel → self PlayerState → cached social level (far players, last fallback).
+    private long LevelValue()
     {
-        // Precedence: broadcast AttrLevel → self PlayerState → cached social level (far players, last
-        // fallback before 0). Social is identity-only, so it never overrides a live broadcast value.
         long socialFallback = IsSelf ? _services.PlayerState.Level : _socialSnap?.Level ?? 0;
-        long lvl = AttrOr(AttrLevel, socialFallback);
-        long season = AttrOr(AttrSeasonLevel, 0);
-        return season > 0 ? $"{lvl} (+{season})" : lvl.ToString(CultureInfo.InvariantCulture);
+        return AttrOr(AttrLevel, socialFallback);
     }
 
-    private string AbilityScoreLine()
+    // Broadcast fight point first; far players fall back to the social reply's user_attr_data (never overrides live).
+    private long FightPointValue()
     {
-        // Broadcast fight point first; far players fall back to the social reply's user_attr_data
-        // (populated when their ID card was fetched with the full mask — never overrides a live value).
         var fp = TargetFightPoint();
-        if (fp == 0) fp = _socialSnap?.FightPoint ?? 0;
-        var score = fp.ToString("N0", CultureInfo.InvariantCulture);
-        var season = AttrOr(AttrSeasonStrength, 0);
-        return season > 0 ? $"{score} (+{season})" : score;
+        return fp != 0 ? fp : _socialSnap?.FightPoint ?? 0;
     }
 
-    // Resolve the target's talent-school id (from their cast-resolved spec, ICombatSpec) for the v2 school-lib
-    // gear-attr lookup. 0 when the spec is unknown (target not yet seen casting a spec-defining skill) — the
-    // gear-detail Advanced section then shows an honest "spec unknown" line instead of empty rows. (Was the AOI
-    // loadout, which carries both specs' skills and mislabelled players; the framework now resolves from casts.)
-    private int ResolveTalentSchool()
-        => ProfessionSpecs.TalentSchool(_services.CombatSpec.GetSubProfession(_target));
-
-    private string ProfessionLine()
+    private int ProfessionValue()
     {
         long socialFallback = IsSelf ? _services.PlayerState.Profession : _socialSnap?.ProfessionId ?? 0;
-        long profId = AttrOr(AttrProfessionId, socialFallback);
-        if (profId <= 0) return "—";
-        var prof = _services.GameData.Combat.GetProfession((int)profId);
+        return (int)AttrOr(AttrProfessionId, socialFallback);
+    }
+
+    // Spec (e.g. "Icicle"): the talent-derived spec when its root buff is seen (ICombatSpec.TryGetTalentSpec,
+    // authoritative), else the cast-resolved one (GetSubProfession) — both only exist for players near you. 0 = unknown.
+    private int SpecValue()
+    {
+        if (IsFrozen) return 0;
+        if (_services.CombatSpec.TryGetTalentSpec(_target, out var talent) && talent != 0) return talent;
+        return _services.CombatSpec.GetSubProfession(_target);
+    }
+
+    private string ClassLine(int profId, int sub)
+    {
+        if (profId <= 0) return "";
+        var prof = _services.GameData.Combat.GetProfession(profId);
         var name = prof is { Name: { Length: > 0 } n } ? n : _loc.TFormat("ei.header.classFallback", profId);
-        // Spec (e.g. "Icicle") from the framework's shared cast-resolved cache (ICombatSpec) — correct once the
-        // target has been seen casting; omitted otherwise (the AOI loadout can't disambiguate the two specs).
-        var sub = _services.CombatSpec.GetSubProfession(_target);
-        if (sub != 0 && ProfessionSpecs.Name(sub) is { Length: > 0 } spec)
-            return name + " · " + spec;
+        if (sub != 0 && ProfessionSpecs.Name(sub) is { Length: > 0 } spec) return name + " · " + spec;
         return name;
     }
 
-    private string HpLine()
-    {
-        var v = TargetVitals();
-        if (v.IsKnown && v.MaxHp > 0)
-            return $"{v.Hp:N0} / {v.MaxHp:N0} ({100f * v.Hp / v.MaxHp:F0}%)";
-        if (IsSelf && _services.PlayerState.MaxHealth > 0)
-        {
-            var ps = _services.PlayerState;
-            return $"{ps.Health:N0} / {ps.MaxHealth:N0} ({100f * ps.Health / ps.MaxHealth:F0}%)";
-        }
-        return "—";
-    }
+    // Resolve the target's talent-school id (from their cast-resolved spec, ICombatSpec) for the v2 school-lib
+    // gear-attr lookup. 0 when the spec is unknown — the gear popover then says so instead of showing wrong ranges.
+    private int ResolveTalentSchool()
+        => ProfessionSpecs.TalentSchool(_services.CombatSpec.GetSubProfession(_target));
 
     // Read a scalar attr from the snapshotted target map, falling back to a self value.
     private long AttrOr(int id, long fallback)
@@ -233,20 +203,18 @@ public sealed partial class Plugin
 
     // ---- self-stat subscription (IPlayerStats only delivers subscribed attr ids) ----
 
-    // Every id the Overview/stat-strip reads for SELF (IPlayerStats samples only subscribed ids).
+    // Every id the Overview reads for SELF (IPlayerStats samples only subscribed ids).
     private static System.Collections.Generic.IEnumerable<int> SelfPolledIds()
     {
-        foreach (var s in SelfStats) yield return s.Id;
-        foreach (var (_, rows) in OverviewSections)
-            foreach (var (id, ratingId) in rows) { yield return id; if (ratingId != 0) yield return ratingId; }
+        foreach (var p in StatPanelDefs)
+            foreach (var (id, ratingId) in p.Rows) { yield return id; if (ratingId != 0) yield return ratingId; }
         foreach (var (_, baseId) in ElementalBands)
             for (var e = 0; e < ElementCount; e++) yield return baseId + e * 10;
     }
 
-    // Subscribe ONLY the ids the broadcast snapshot lacks — the probe reflects over every subscribed id
-    // each game tick, and for self most Overview ids already arrive on the wire (perf review: the full
-    // ~130-id set cost ~7.8k reflection invokes/s). Tracked in a set so unsubscribe releases exactly
-    // what was taken even if the snapshot changes meanwhile.
+    // Subscribe ONLY the ids the broadcast snapshot lacks — the probe reflects over every subscribed id each game tick,
+    // and for self most Overview ids already arrive on the wire (perf review: the full ~130-id set cost ~7.8k reflection
+    // invokes/s). Tracked in a set so unsubscribe releases exactly what was taken even if the snapshot changes meanwhile.
     private readonly System.Collections.Generic.HashSet<int> _subscribedIds = new();
 
     private void SubscribeSelfStats()

@@ -13,6 +13,7 @@ Glyphs:
   card   - the "Profile" data tag: an ID card (from the player's profile reply)
   hatch  - the undyed "Default" swatch: a rounded square with diagonal hatching
   close  - the round x button of the popovers
+  pin    - the Location empty-state tile (a map pin)
 
 Sizes: the glyph's size in canvas units x the UI scales the game runs at (canvas -> screen 0.75 at 1080p, 1.0 at
 1440p, 1.25 / 1.5 / 2.0 above), plus 16 and 32. The plugin picks the bitmap nearest to units x live scale.
@@ -27,7 +28,7 @@ OUT = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "Icons")
 SCALES = [0.75, 1.0, 1.25, 1.5, 2.0]
 
 # name -> glyph size in canvas units (what the window draws). Keep in sync with Plugin.Style.Blocks.cs.
-UNITS = {"radar": 12, "lock": 12, "card": 12, "hatch": 12, "close": 14}
+UNITS = {"radar": 12, "lock": 12, "card": 12, "hatch": 12, "close": 14, "pin": 16}
 
 
 def sizes_for(units):
@@ -138,6 +139,15 @@ def hatch(n):
     return p.done()
 
 
+def pin(n):
+    """Map pin: a ring head with a point below it, plus a centre dot."""
+    p = Pen(n)
+    p.arc(12, 9.5, 6, 150, 390)                  # head (open at the bottom where the point starts)
+    p.line((6.8, 12.5), (12, 21), (17.2, 12.5))  # point
+    p.dot(12, 9.5, 1.8)
+    return p.done()
+
+
 def close(n):
     p = Pen(n)
     p.line((6, 6), (18, 18))
@@ -145,7 +155,7 @@ def close(n):
     return p.done()
 
 
-DRAW = {"radar": radar, "lock": lock, "card": card, "hatch": hatch, "close": close}
+DRAW = {"radar": radar, "lock": lock, "card": card, "hatch": hatch, "close": close, "pin": pin}
 
 if __name__ == "__main__":
     os.makedirs(OUT, exist_ok=True)

@@ -23,14 +23,11 @@ public sealed partial class Plugin
     private int _ptCount;
     private string _ptSummary = "";
     private readonly long[] _ptCharId = new long[MaxPartyRows];
-    private readonly int[] _ptProf = new int[MaxPartyRows];
     private readonly string[] _ptName = new string[MaxPartyRows];
-    private readonly string[] _ptLevel = new string[MaxPartyRows];
-    private readonly string[] _ptMap = new string[MaxPartyRows];
+    private readonly string[] _ptMeta = new string[MaxPartyRows];   // "Lv 60 · 61,355" / "Offline" / "Viewing"
     private readonly bool[] _ptOnline = new bool[MaxPartyRows];
     private readonly bool[] _ptLeader = new bool[MaxPartyRows];
     private readonly bool[] _ptViewing = new bool[MaxPartyRows];
-    private readonly UvRect[] _ptUv = new UvRect[MaxPartyRows];
 
     // Dirty check + sort scratch (the wire map order is random on every reply → sort client-side).
     private SocialParty? _ptLastParty;
@@ -39,103 +36,82 @@ public sealed partial class Plugin
     private long _ptSortLeader;
     private Comparison<SocialPartyMember>? _ptCompare;
 
-    private static readonly ColorRgba PartyOnline = new(0x5f / 255f, 0xd3 / 255f, 0x8d / 255f, 1f);   // #5fd38d
-    private static readonly ColorRgba PartyTeal   = new(0.40f, 0.82f, 0.80f, 1f);                     // "Viewing" chip
+    private const float PartyRowH = 26f, PartyRingPad = 2f;
 
+    // One PARTY panel (approved prototype): hint "click a member to inspect", Profile tag (the roster comes from their
+    // profile reply), the rows, then the "n / max" footer. Non-Ok states show one muted centred line instead.
     private HudElement BuildPartyBody()
     {
         var slots = new HudElement[MaxPartyRows];
-        for (var i = 0; i < MaxPartyRows; i++)
-        {
-            _ptUv[i] = new UvRect(0f, 0f, 1f, 1f);   // full rect until the slot's icon resolves (as the header's _profUv)
-            slots[i] = BuildPartyRow(i);
-        }
+        for (var i = 0; i < MaxPartyRows; i++) slots[i] = BuildPartyRow(i);
+        return CaptionedPanel(() => _loc.T("ei.tab.party"), () => _ptState == PartyState.Ok ? _loc.T("ei.party.clickHint") : "",
+            DataTag(() => _ptState == PartyState.Ok && !IsSelf ? TagKind.Profile : TagKind.None, TagCaptionH),
+            new HudElement[]
+            {
+                new ConditionalElement(() => _ptState != PartyState.Ok, new ColumnElement(new HudElement[]
+                {
+                    new SpacerElement(0f, 24f),
+                    new TextElement(PartyStateLine, Color: () => MutedColor(), Align: TextAlign.Center),
+                }, Gap: 0.01f)),
+                new ConditionalElement(() => _ptState == PartyState.Ok,
+                    new ScrollElement(new ListElement(() => _ptCount, slots) { Gap = 0.01f }, 300f), Fill: true),
+                new ConditionalElement(() => _ptState == PartyState.Ok,
+                    new TextElement(() => _ptSummary, Color: () => MutedColor(), NoWrap: true)),
+            });
+    }
+
+    // One member row (26 px + 2 gap): an outer bubble (accent on the viewed member, else the tile colour) around the
+    // inner tile with 2 px padding = a 2 px accent ring that never resizes the row (BubbleElement's own outline is
+    // 1 px). Inside: online dot · bold name · Leader chip · muted "Lv · score" / "Offline" / "Viewing". The hover wash
+    // remembers WHICH member it was set on, so a row that rebinds under a still pointer doesn't inherit it.
+    // Status dot = PLAIN Text "●" (the bold/TMP path's Noto Sans has no U+25CF → drew nothing).
+    private HudElement BuildPartyRow(int idx)
+    {
+        var hover = new HoverFlag();
+        long hoverId = 0;
+        bool Hot() => hover.On && hoverId == _ptCharId[idx] && !_ptViewing[idx];
+        ColorRgba Inner() => Hot() ? HoverFill(TileColor()) : TileColor();
         return new ColumnElement(new HudElement[]
         {
-            // Same header look as the Overview sections (BuildSectionRow's header variant): bold gold + rule line.
-            new SpacerElement(Height: 8f),
-            new TextElement(() => _loc.T("ei.tab.party"), AccentCol, Emphasis: true),
-            new SeparatorElement(),
-            new ConditionalElement(() => _ptState != PartyState.Ok, new ColumnElement(new HudElement[]
-            {
-                new SpacerElement(Height: 24f),
-                new TextElement(PartyStateLine, MutedCol, Align: TextAlign.Center),
-            })),
-            new ConditionalElement(() => _ptState == PartyState.Ok, new ColumnElement(new HudElement[]
-            {
-                new RowElement(new HudElement[]
+            new BubbleElement(new BubbleElement(new SelectableElement(new RowElement(new HudElement[]
                 {
-                    new TextElement(() => _ptSummary, MutedCol, NoWrap: true),
-                    new SpacerElement(),   // flexible: pushes the hint to the right edge
-                    new TextElement(() => _loc.T("ei.party.clickHint"), MutedCol, NoWrap: true),
-                }, Gap: 6f),
-                new ScrollElement(new ListElement(() => _ptCount, slots), 360f),
-            }, Gap: 6f)),
-        }, Gap: 2f);
-    }
-
-    // One member row: a raised tile (Bubble OUTSIDE the Selectable — the hub-card pattern, so the hover wash sits on
-    // the fill) → [prof icon][name + Leader/Viewing chips][Lv][status dot][map]. Level, dot and map are fixed-width
-    // cells so nothing shifts between online/offline or chip states. The 22 px strut + the Selectable's 4+4 = 30 px.
-    // The viewed member's tile gets a gold 1 px outline (overlaid, never resizes the tile).
-    // Pitch = 30 tile + 2 spacer + 2 (ListElement's own slot gap) = 34 px. ⚠️ The wrapper column's gap must be 0.01f:
-    // ColumnElement Gap 0 means the DEFAULT SectionGap (12), which was the old ~17 px between tiles.
-    // Status dot = PLAIN Text "●" (legacy uGUI Text, OS font with fallback — as Maestro's link dot). Bold/FontSize
-    // route it to the TMP styled path, whose one-face Noto Sans has no U+25CF → drew nothing. (Plain path ignores
-    // FontSize, so it's the body 14 px.)
-    private HudElement BuildPartyRow(int idx) => new ColumnElement(new HudElement[]
-    {
-        new BubbleElement(new SelectableElement(new RowElement(new HudElement[]
-            {
-                new SpacerElement(0f, 22f),
-                new GameTextureElement(() => PartyProfIcon(idx), 18, 18, () => _ptUv[idx]),
-                new CellElement(new RowElement(new HudElement[]
-                {
-                    new TextElement(() => _ptName[idx] ?? "", NoWrap: true),
-                    new ConditionalElement(() => _ptLeader[idx], PartyChip(() => _loc.T("ei.party.leader"), AccentGold)),
-                    new ConditionalElement(() => _ptViewing[idx], PartyChip(() => _loc.T("ei.party.viewing"), PartyTeal)),
+                    new SpacerElement(6f, PartyRowH - 2f * PartyRingPad),
+                    new TextElement(() => "●", Color: () => _ptOnline[idx] ? SuccessColor() : MutedColor(), NoWrap: true),
+                    new SpacerElement(6f, 0f),
+                    new TextElement(() => _ptName[idx] ?? "", Color: () => _ptOnline[idx] ? TextColor() : MutedColor(),
+                        NoWrap: true, FontSize: 13) { Bold = true, Ellipsize = true },
+                    new SpacerElement(6f, 0f),
+                    new ConditionalElement(() => _ptLeader[idx], LeaderChip()),
                     new SpacerElement(),
-                }, Gap: 6f), Weight: 1f),
-                new CellElement(new TextElement(() => _ptLevel[idx] ?? "", MutedCol, NoWrap: true), Width: 56f),
-                new CellElement(new TextElement(() => "●", () => _ptOnline[idx] ? PartyOnline : MutedCol(),
-                    Align: TextAlign.Center, NoWrap: true), Width: 16f),
-                new CellElement(new TextElement(() => _ptMap[idx] ?? "", MutedCol, NoWrap: true), Width: 140f),
-            }, Gap: 8f), () => OnPartyRowClick(idx)))
-        {
-            FillColorFn = PartyTileColor, CornerRadius = 4f, PaddingX = 0f, PaddingY = 0f,
-            OutlineColorFn = () => _ptViewing[idx] ? AccentCol() : null,
-        },
-        new SpacerElement(Height: 2f),
-    }, Gap: 0.01f);
-
-    // Inline status chip: bold coloured text on a 22% pill of the same colour (house StatusChip "on" look). It hugs
-    // its label (a Bubble in a Row) because the translations differ a lot in length; the strut pins the height.
-    private static HudElement PartyChip(Func<string> label, ColorRgba color) => new BubbleElement(new RowElement(
-        new HudElement[]
-        {
-            new SpacerElement(0f, 18f),
-            new TextElement(label, () => color, NoWrap: true, FontSize: 12) { Bold = true },
-        }, Gap: 0.01f, Justify: RowJustify.Center))
-    { FillColor = color with { A = 0.22f }, PaddingX = 6f, PaddingY = 1f };
-
-    private static readonly ColorRgba AccentGold = new(0.79f, 0.66f, 0.36f, 1f);   // = AccentCol(), as a static for chips
-
-    // Raised tile = panel (menu background darkened 20%) + 10% menu text — live from the theme (Stellar Design
-    // Language "Tile"), so it is lighter on dark themes and darker on Light. Pure struct math, no allocation.
-    private ColorRgba? PartyTileColor()
-    {
-        var m = _services.Theme.Colors;
-        var panel = Lerp(m.MenuBackground, new ColorRgba(0f, 0f, 0f, 1f), 0.20f);
-        return Lerp(panel, m.MenuText, 0.10f);
+                    new TextElement(() => _ptMeta[idx] ?? "", Color: () => MutedColor(), NoWrap: true),
+                    new SpacerElement(8f, 0f),
+                }, Gap: 0.01f), () => OnPartyRowClick(idx))
+                { Bare = true, OnHover = over => { hover.On = over; hoverId = _ptCharId[idx]; } })
+            {
+                FillColorFn = () => Fade(Inner()), CornerRadius = TileRadius - PartyRingPad, PaddingX = 0f, PaddingY = 0f,
+            })
+            {
+                FillColorFn = () => Fade(_ptViewing[idx] ? AccentColor() : Inner()),
+                CornerRadius = TileRadius, PaddingX = PartyRingPad, PaddingY = PartyRingPad,
+            },
+            new SpacerElement(0f, 2f),
+        }, Gap: 0.01f);
     }
 
-    private static ColorRgba Lerp(ColorRgba a, ColorRgba b, float t)
-        => new(a.R + (b.R - a.R) * t, a.G + (b.G - a.G) * t, a.B + (b.B - a.B) * t, 1f);
-
-    private object? PartyProfIcon(int idx)
+    // Leader chip: bold amber on a 22 % amber wash (house status chip), 18 px. MaxWidth: the chip sits in a Conditional
+    // directly in a Row (the 100 px bubble-cap gotcha).
+    private HudElement LeaderChip()
     {
-        if (idx >= _ptCount || _ptProf[idx] <= 0) return null;
-        return _services.GameAssets.LoadProfessionIcon(_ptProf[idx], out _ptUv[idx]);
+        var text = new ContrastCache();
+        ColorRgba Fill() => Over(CautionColor() with { A = ChipWashAlpha }, TileColor());
+        return new BubbleElement(new RowElement(new HudElement[]
+        {
+            new SpacerElement(7f, 18f),
+            DropBold(new TextElement(() => _loc.T("ei.party.leader"), Color: () => text.Get(CautionColor(), Fill(), PillMinContrast),
+                NoWrap: true, FontSize: 11) { Bold = true }),
+            new SpacerElement(7f, 18f),
+        }, Gap: 0.01f))
+        { FillColorFn = () => Fade(Fill()), CornerRadius = RoundRadius(18f), PaddingX = 0f, PaddingY = 0f, MaxWidth = 140f };
     }
 
     private string PartyStateLine() => _ptState switch
@@ -177,13 +153,13 @@ public sealed partial class Plugin
             var m = _ptSorted[i];
             bool online = m.OnlineStatus == 1;
             _ptCharId[i] = m.CharId;
-            _ptProf[i] = m.ProfessionId;
             _ptName[i] = m.Name.Length > 0 ? m.Name : "#" + m.CharId.ToString(CultureInfo.InvariantCulture);
-            _ptLevel[i] = m.Level > 0 ? _loc.TFormat("ei.gd.lv", m.Level) : "";
-            _ptMap[i] = online ? SceneName(m.SceneId) : _loc.T("ei.party.offline");
             _ptOnline[i] = online;
             _ptLeader[i] = m.CharId == party.LeaderId;
             _ptViewing[i] = m.CharId == viewing;
+            _ptMeta[i] = _ptViewing[i] ? _loc.T("ei.party.viewing")
+                       : !online ? _loc.T("ei.party.offline")
+                       : PartyMemberMeta(m);
         }
         _ptCount = n;
         _ptSummary = _loc.TFormat("ei.party.summary", party.TeamNum > 0 ? party.TeamNum : party.Members.Count, PartyMax(party));
@@ -204,6 +180,15 @@ public sealed partial class Plugin
         if (la != lb) return la ? -1 : 1;
         int c = a.EnterTime.CompareTo(b.EnterTime);
         return c != 0 ? c : string.CompareOrdinal(a.Name, b.Name);
+    }
+
+    // "Lv 60 · 61,355" (each part only when known).
+    private string PartyMemberMeta(SocialPartyMember m)
+    {
+        var lv = m.Level > 0 ? _loc.TFormat("ei.gd.lv", m.Level) : "";
+        if (m.FightPoint <= 0) return lv;
+        var fp = m.FightPoint.ToString("N0", CultureInfo.InvariantCulture);
+        return lv.Length > 0 ? lv + " · " + fp : fp;
     }
 
     private string SceneName(int sceneId)
