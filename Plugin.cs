@@ -33,7 +33,7 @@ public sealed partial class Plugin : IStellarPlugin, Stellar.PluginContracts.IFr
     // no config for lighting anymore. (See PortraitModelHost.Lighting.cs: 0..4 = the custom profiles; 4 = Vivid.)
     private const int VividPreset = 4;
 
-    private enum Tab { Overview, Gear, SkillBook, Wardrobe }
+    private enum Tab { Overview, Gear, SkillBook, Wardrobe, Location, Party }
 
     public Plugin(IPluginServices services)
     {
@@ -45,14 +45,19 @@ public sealed partial class Plugin : IStellarPlugin, Stellar.PluginContracts.IFr
         _showWeapon = _services.Config.GetSection("portrait").Get<bool>("showWeapon", false);
         _services.EntityPortrait.ShowWeapon = _showWeapon;
 
+        // Location tab view: full region map (default) vs zoom-around-markers.
+        _locFullMap = _services.Config.GetSection("location").Get<bool>("fullMap", true);
+
         // Portrait lighting is fixed to Vivid (no picker, no config) — always apply it up front.
         _services.EntityPortrait.LightPreset = VividPreset;
+
+        InitOverview();   // the Overview panels' row pools must exist before BuildRoot() runs
 
         _window = _services.Windows.Register(new WindowRegistration(
             new WindowSpec(
                 Id:          "entityinspector.main",
                 Title:       _loc.T("ei.window.title"),
-                DefaultRect: new WindowRect(80f, 80f, 820f, 600f),
+                DefaultRect: new WindowRect(80f, 80f, 980f, 620f),
                 Category:    WindowCategory.HUD,
                 // GlassMenu (was Party): the inspector is a full menu window like DataInspector /
                 // ModuleOptimizer — the themed glass chrome with a real title bar (drag handle + ✕)
@@ -63,15 +68,17 @@ public sealed partial class Plugin : IStellarPlugin, Stellar.PluginContracts.IFr
               // Gameplay HUD: inspects in-world entities — draw only while in-world and not on a loading screen.
               ShouldRender = () => _services.ClientState.Phase == GamePhase.World
                                    && (_services.ClientState.UiState & GameUIState.Loading) == 0,
-              // MinWidth 780 (was 580): the gear tab's fixed accessory grid (6×76 + spacing ≈ 466px) +
-              // the 260px portrait + paddings needs ≥ ~770px window or the right cards clip under the
-              // RectMask2D (ux-ui review 2026-06-13, static arithmetic — the old 580 min predates the
-              // gear grid). Default bumped 640→820 for the same reason.
-              Resizable = true, MinWidth = 780f, MinHeight = 360f, MaxWidth = 1200f, MaxHeight = 1100f },
+              // House-style redesign (approved 2026-11-13): default = minimum = 980 × 620 — the 340 px PORTRAIT panel +
+              // the two-column Overview / 6-tab track need it; the Location map keeps scaling when it grows.
+              // Prebuild: the window (and its KeepAlive tabs) is built in the background, so the first open and every tab
+              // switch are instant (KB Plugin-Performance-Rules §5).
+              Prebuild = true,
+              Resizable = true, MinWidth = 980f, MinHeight = 620f, MaxWidth = 1400f, MaxHeight = 1100f },
             BuildRoot(),
             OnClose: CloseInspector));
 
         _gearDetailWindow = RegisterGearDetailWindow();
+        _tipWindow = RegisterTipWindow();
 
         // Register the "Inspect" item into the meter's row context menu — visible only for player rows.
         _inspectItem = _services.EntityContextMenu.Register("Inspect", id => id.IsPlayer, Open);
@@ -101,6 +108,7 @@ public sealed partial class Plugin : IStellarPlugin, Stellar.PluginContracts.IFr
         _frozen = null;                                // a live Open() leaves any frozen-session view
         _gearDetailWindow.SetVisible(false);           // retargeting must not leave a stale item popup
         _target = entity;
+        ResetLocationView();                        // new subject: the map starts from the saved preset again
         VerticalRotationPatch.Activate(true);
         VerticalRotationPatch.ResetPitch();
         RebuildSnapshots();                            // before subscribe: the broadcast snapshot decides which ids need polling
@@ -120,9 +128,11 @@ public sealed partial class Plugin : IStellarPlugin, Stellar.PluginContracts.IFr
         _frozen = null;                        // closing a frozen-session view returns to live on next open
         _window.SetVisible(false);
         _gearDetailWindow.SetVisible(false);   // a floating detail popup must not outlive its inspector
+        CloseTip();                            // nor its help popover
         _services.EntityPortrait.Hide();       // release the portrait model when hidden
         VerticalRotationPatch.Activate(false);
         UnsubscribeSelfStats();                // stop the self-stat poll set while the window is closed
+        DropLocationBase();                    // free the cached map art (up to 16 MB) while closed
     }
 
     public void Dispose()
@@ -133,7 +143,9 @@ public sealed partial class Plugin : IStellarPlugin, Stellar.PluginContracts.IFr
         _inspectItem.Dispose();
         _inspectAction.Dispose();
         UnsubscribeSelfStats();
+        DisposeLocation();
         _gearDetailWindow.Remove();
+        _tipWindow.Remove();
         _window.Remove();
     }
 
@@ -149,6 +161,7 @@ public sealed partial class Plugin : IStellarPlugin, Stellar.PluginContracts.IFr
         TickAutoOpenFlag(dt);
         if (!_window.IsShown) return;
         VerticalRotationPatch.ApplyPitch(); // per-tick ZModel2RTMono write (after ZModel2RT.Update clamps)
+        TickLocationView();                 // per frame: a map drag/scroll re-renders now, not at 10 Hz
         _accum += dt;
         if (_accum < SnapshotIntervalS) return;
         _accum = 0f;
@@ -184,6 +197,8 @@ public sealed partial class Plugin : IStellarPlugin, Stellar.PluginContracts.IFr
             if (tab == "gear") _tab = Tab.Gear;
             else if (tab == "skills") _tab = Tab.SkillBook;
             else if (tab == "wardrobe") _tab = Tab.Wardrobe;
+            else if (tab == "location") _tab = Tab.Location;
+            else if (tab == "party") _tab = Tab.Party;
             _services.Log.Info($"[EntityInspector] inspect-self.flag consumed — opening self (tab={_tab})");
             Open(self);
         }
@@ -213,63 +228,33 @@ public sealed partial class Plugin : IStellarPlugin, Stellar.PluginContracts.IFr
         {
             _targetAttrs = EmptyAttrs;
             _socialSnap = null; _isRemote = false; _targetTalentSchool = 0;
-            _ovLabels.Clear(); _ovValues.Clear(); _imagines.Clear(); _skillRows.Clear(); _wardrobeRows.Clear();
+            ClearOverview(); _imagines.Clear(); _skillRows.Clear(); _wardrobeRows.Clear();
             _lastSkillSnapshot = null; _lastFashionSnapshot = null;   // keep the dirty checks honest after a clear
+            _locState = LocState.None;
+            SetPartyState(PartyState.Loading);
             System.Array.Clear(_gearCards, 0, _gearCards.Length);
+            _gearSig = int.MinValue; _gearHasData = false; _gearSource = GearSource.None;
+            _statusMain = _statusTail = _hdrName = _hdrClass = _hdrNameLine = _statusLine = ""; _stKind = (StatusKind)255;
+            _hpLastHp = -1; _hpFrac = _shieldFrac = 0f; _hpLabel = "";
             return;
         }
         _targetAttrs = _frozen?.Attributes ?? _services.EntityDetail.GetAttributes(_target);
         _socialSnap = _frozen is null ? _services.EntityDetail.GetSocialSnapshot(_target) : null;   // no social for frozen
         _isRemote = !IsFrozen && _targetAttrs.Count == 0;   // no broadcast data → far/never-seen; frozen always has data
         _targetTalentSchool = ResolveTalentSchool();
-        RebuildImagines();   // header chips are tab-independent
+        BeginLuaTick();      // per-tick budget for the plugin-side game-table reads (Plugin.LuaTables.cs)
+        RefreshUiScale();    // picks the glyph bitmaps for the current canvas scale
+        RebuildImagines();   // the header + PORTRAIT panel are tab-independent
+        RebuildVitals();
+        RebuildHeader();
         switch (_tab)
         {
             case Tab.Overview:  RebuildOverview();  break;
             case Tab.Gear:      RebuildGear();      break;
             case Tab.SkillBook: RebuildSkillBook(); break;
             case Tab.Wardrobe:  RebuildWardrobe();  break;
+            case Tab.Location:  RebuildLocation();  break;
+            case Tab.Party:     RebuildParty();     break;
         }
-    }
-
-    // Header imagine chips: (name, precomputed star string, icon skill id). Identity = first 2 Battle
-    // Imagines in the loadout (same filter the CombatMeter uses). Star source = SkillLevel.Tier
-    // (remodel_level) clamped 0-5 — .Level read 1★ for everything in-world 2026-06-13; ZDPS uses
-    // RemodelLevel as the tier, confirming the banked check item. Strings are built HERE (10 Hz) so
-    // the per-poll chip Funcs are pure cache reads.
-    private readonly List<(string Name, string Stars, int SkillId)> _imagines = new(2);
-    private static readonly string[] StarStrings =
-        { "☆☆☆☆☆", "★☆☆☆☆", "★★☆☆☆", "★★★☆☆", "★★★★☆", "★★★★★" };
-
-    private void RebuildImagines()
-    {
-        _imagines.Clear();
-        foreach (var sl in TargetSkills())
-        {
-            if (_services.ResonanceData.GetImagineForSkill(sl.SkillId) is not { } info) continue;
-            var stars = StarStrings[sl.Tier < 0 ? 0 : sl.Tier > 5 ? 5 : sl.Tier];
-            _imagines.Add((info.Name, stars, info.SkillId));
-            if (_imagines.Count == 2) break;
-        }
-    }
-
-    private ColorRgba? MutedCol() => new ColorRgba(0.66f, 0.70f, 0.73f, 1f);
-
-    private void SelectTab(Tab t)
-    {
-        _tab = t;
-        _gearDetailWindow.SetVisible(false);           // popup belongs to the Gear tab's context
-        RebuildSnapshots();
-    }
-
-    // Portrait "Show Weapon" toggle: flip the (global) portrait service — it re-asserts the weapon exclusion on
-    // the live model immediately — and persist the choice so it survives a restart.
-    private void SetShowWeapon(bool v)
-    {
-        _showWeapon = v;
-        _services.EntityPortrait.ShowWeapon = v;
-        var s = _services.Config.GetSection("portrait");
-        s.Set("showWeapon", v);
-        s.Save();
     }
 }

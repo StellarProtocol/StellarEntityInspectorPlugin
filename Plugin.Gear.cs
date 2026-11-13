@@ -1,33 +1,46 @@
 using System.Collections.Generic;
+using System.Globalization;
 using Stellar.Abstractions.Domain;
 using Stellar.Abstractions.Services;
 
 namespace Stellar.EntityInspector;
 
-// Gear tab — game-mirror card grid: featured Weapon card + 4-wide armor row + 6-wide accessory row.
-// Cards are grouped by the item's EquipPart code from the equip table (200=Weapon … 210=Charm — table
-// truth, confirmed live 2026-06-12; the broadcast slot int is only a fallback). Identity comes from the
-// broadcast equipment list for ANY entity; for SELF the cards prefer the decoded GearInstance list and
-// carry the instance uuid so the detail popup can show actual rolls. Snapshotted at 10 Hz into a fixed
-// card array; element Funcs only read it.
+// Gear tab — data. Cards are grouped by the item's EquipPart code from the equip table (200=Weapon … 210=Charm — table
+// truth, confirmed live 2026-06-12; the broadcast slot int is only a fallback). Identity comes from the broadcast
+// equipment list for ANY entity; for SELF the cards prefer the decoded GearInstance list (uuid → actual rolls in the
+// popover, refine, breakthrough stage). Far players fall back to the cached social reply (slot + id only).
+// Breakthrough (approved prototype; KB Gear-Breakthrough-Visibility.md): the stage is NOT visible for other players, so
+//   • others: "GS <base>", or "GS 260+" when the piece HAS breakthrough stages (no lock tag — user 2026-11-13);
+//   • self:   the real upgraded GS (EquipBreakThroughTable.EquipGs for the stage) + " · R<refine>" + a stage bar.
+// Stage GS values come from the plugin-side Lua read (Plugin.LuaTables.cs), once per equip id. Snapshotted at 10 Hz into a
+// fixed card array, re-formatted only when the gear (or a Lua reply) changed; the element Funcs only read it.
 public sealed partial class Plugin
 {
     private const int WeaponPart = 200;
-    private const int GearGridCards = 10;            // non-weapon cards: armor row 4 + accessory row 6
+    private const int GearCardCount = 11;   // [0] = weapon, then parts 201..210
 
     private struct GearCard
     {
         public int ItemId; public long Uuid; public bool Occupied;
-        public string Slot; public string Name; public string Lv;
+        public string Slot; public string Name; public string Bottom;
         public ColorRgba NameCol;
+        public bool Lock;                    // others: the piece has breakthrough stages we can't see → "GS 260+"
+        public int Stage, MaxStage;          // self: stage bar (MaxStage 0 = no bar)
+        public int BaseGs, Refine;
+        public int[]? StageGs;               // upgraded GS per stage (null = unknown)
     }
 
-    private readonly GearCard[] _gearCards = new GearCard[1 + GearGridCards];   // [0] = weapon
-    private readonly UvRect[] _gearUv = new UvRect[1 + GearGridCards];
-    private readonly List<(int Part, int ItemId, long Uuid, int Refine)> _gearScratch = new(1 + GearGridCards);
+    private enum GearSource : byte { None, Self, Live, Profile }
 
-    // THIS game's quality tiers: 1=green … 5=red with 4=GOLD (in-world verified 2026-06-12: the
-    // gold-bannered earrings carry Quality 4, the purple crown 3 — NOT the classic MMO order).
+    private readonly GearCard[] _gearCards = new GearCard[GearCardCount];
+    private readonly UvRect[] _gearUv = new UvRect[GearCardCount];
+    private readonly List<(int Part, int ItemId, long Uuid, int Refine, int Stage)> _gearScratch = new(GearCardCount);
+    private GearSource _gearSource;
+    private int _gearSig = int.MinValue;     // dirty check: hash of the collected items + Lua version + language
+    private object? _gearLang;
+
+    // THIS game's quality tiers: 1=green … 5=red with 4=GOLD (in-world verified 2026-06-12: the gold-bannered earrings
+    // carry Quality 4, the purple crown 3 — NOT the classic MMO order). Item art colours, not theme colours.
     private static readonly ColorRgba[] QualityCols =
     {
         new(0.78f, 0.80f, 0.82f, 1f),   // 0 / unknown — neutral
@@ -41,88 +54,30 @@ public sealed partial class Plugin
     private static ColorRgba QualityColOf(int q)
         => QualityCols[q < 0 ? 0 : q >= QualityCols.Length ? QualityCols.Length - 1 : q];
 
-    // Game-mirror cards: slot label (quality-coloured) + icon + Lv — NO item name on the card (the
-    // game's own gear screen does the same; names live in the detail popup title). Keeps every cell's
-    // content inside its fixed grid bounds — long localized names measurably overflowed (sandbox).
-    // Weapon card ABOVE the slot grids (not beside): side-by-side, weapon (~120px) + the 6-wide
-    // accessory row (456px) overflowed the pane and clipped the right columns even at full window
-    // width — user-flagged in-world 2026-06-13.
-    private HudElement BuildGearBody() => new ScrollElement(new ColumnElement(new HudElement[]
-    {
-        // Far players with NO data at all (no broadcast, no social gear) get the hint instead of a
-        // grid of empty slots; once the social fallback fills cards the hint vanishes.
-        new ConditionalElement(() => _isRemote && !_gearHasData, new TextElement(
-            () => _loc.T("ei.gear.emptyNote"), MutedCol)),
-        BuildWeaponCard(),
-        BuildGearGrid(first: 1, count: 4, iconPx: 36, cellW: 88f, cellH: 84f),
-        BuildGearGrid(first: 5, count: 6, iconPx: 24, cellW: 76f, cellH: 70f),
-        new TextElement(() => IsSelf ? "Click a card for full detail (your actual rolls)."
-                                     : "Click a card for the item's table detail (their rolls aren't broadcast).",
-            MutedCol),
-    }, Gap: 8f), 380f);
-
-    // Featured weapon card — horizontal: icon beside slot/name/GS lines (it now spans the pane width,
-    // so the old narrow vertical card would float in empty space).
-    private HudElement BuildWeaponCard()
-        => new SelectableElement(new RowElement(new HudElement[]
-        {
-            new GameTextureElement(() => GearIcon(0), 64, 48, () => _gearUv[0]),
-            new ColumnElement(new HudElement[]
-            {
-                new TextElement(() => _gearCards[0].Slot, () => _gearCards[0].NameCol),
-                new TextElement(() => _gearCards[0].Name, () => _gearCards[0].NameCol),
-                new TextElement(() => _gearCards[0].Lv, MutedCol),
-            }, Gap: 2f),
-            new SpacerElement(),
-        }, Gap: 10f), () => OpenGearDetail(0));
-
-    private HudElement BuildGearGrid(int first, int count, int iconPx, float cellW, float cellH)
-    {
-        var slots = new HudElement[count];
-        for (var i = 0; i < count; i++) slots[i] = GearCardElement(first + i, iconPx);
-        return new ListElement(() => count, slots, Columns: count, CellWidth: cellW, CellHeight: cellH);
-    }
-
-    // The icon box rides between flexible spacers so it centres in the card (column children are
-    // left-aligned otherwise — icons sat left of centre, user-flagged in-world 2026-06-13).
-    private HudElement GearCardElement(int idx, int iconPx)
-        => new SelectableElement(new ColumnElement(new HudElement[]
-        {
-            new TextElement(() => _gearCards[idx].Slot, () => _gearCards[idx].NameCol),
-            new RowElement(new HudElement[]
-            {
-                new SpacerElement(),
-                new GameTextureElement(() => GearIcon(idx), iconPx * 4 / 3, iconPx, () => _gearUv[idx]),
-                new SpacerElement(),
-            }, Gap: 0f),
-            new TextElement(() => _gearCards[idx].Lv, MutedCol),
-        }, Gap: 2f), () => OpenGearDetail(idx));
-
-    private object? GearIcon(int idx)
-    {
-        var c = _gearCards[idx];
-        if (!c.Occupied || c.ItemId <= 0) return null;
-        return _services.GameAssets.LoadItemIcon(c.ItemId, out _gearUv[idx]);
-    }
-
-    // Cards sit at FIXED grid positions (part code − 200 → index 0..10) so a missing piece renders
-    // as a named empty slot instead of shifting later cards left (qa review). Unknown part codes
-    // take the first free cell as a defensive fallback.
-    private bool _gearHasData;   // any card occupied at last rebuild — gates the far-player hint
+    private bool _gearHasData;   // any card occupied at last rebuild — gates the far-player note
 
     private void RebuildGear()
     {
         _gearScratch.Clear();
-        CollectGearItems();
+        _gearSource = CollectGearItems();
         _gearHasData = _gearScratch.Count > 0;
 
+        var lang = _loc.T("ei.tab.gear");
+        int sig = (int)_gearSource * 31 + _luaVersion;
+        foreach (var g in _gearScratch)
+            sig = ((sig * 31 + g.Part) * 31 + g.ItemId) * 31 + g.Refine * 7 + g.Stage;
+        if (sig == _gearSig && ReferenceEquals(lang, _gearLang)) return;
+        _gearSig = sig; _gearLang = lang;
+
         for (var i = 0; i < _gearCards.Length; i++) _gearCards[i] = EmptySlotCard(WeaponPart + i);
-        foreach (var (part, itemId, uuid, refine) in _gearScratch)
+        foreach (var (part, itemId, uuid, refine, stage) in _gearScratch)
         {
+            // Cards sit at FIXED positions (part − 200) so a missing piece renders as a named empty slot instead of
+            // shifting later cards (qa review); unknown part codes take the first free cell.
             var idx = part - WeaponPart;
             if (idx < 0 || idx >= _gearCards.Length) idx = FirstFreeGearCell();
             if (idx < 0) continue;
-            _gearCards[idx] = MakeGearCard(part, itemId, uuid, refine);
+            _gearCards[idx] = MakeGearCard(part, itemId, uuid, refine, stage);
         }
     }
 
@@ -130,7 +85,7 @@ public sealed partial class Plugin
     {
         Occupied = false,
         Slot = _services.GameData.Equip.GetSlotName(part) ?? "",
-        Name = "", Lv = "—",
+        Name = "", Bottom = "",
         NameCol = QualityColOf(0),
     };
 
@@ -141,52 +96,83 @@ public sealed partial class Plugin
         return -1;
     }
 
-    // Self prefers the decoded instance list (carries uuids for the detail popup); broadcast is the
-    // fallback (and the primary source for others). Far players with no broadcast fall back to the
-    // cached social reply's equip_data (slot+config-id only, no rolls — populated on ID-card open).
-    // GearInstance.Slot is already the EquipPart code.
-    private void CollectGearItems()
+    // Self prefers the decoded instance list (uuids, refine, breakthrough stage); broadcast is the fallback (and the
+    // primary source for others). Far players with no broadcast fall back to the cached social reply's equip_data
+    // (slot+config-id only — populated on ID-card open). GearInstance.Slot is already the EquipPart code.
+    private GearSource CollectGearItems()
     {
-        if (IsSelf)
+        if (IsSelf && !IsFrozen)
         {
             foreach (var g in _services.Inventory.GetSelfGear())
-                _gearScratch.Add((PartOf(g.ConfigId, g.Slot), g.ConfigId, g.ItemUuid, g.RefineLevel));
-            if (_gearScratch.Count > 0) return;
+                _gearScratch.Add((PartOf(g.ConfigId, g.Slot), g.ConfigId, g.ItemUuid, g.RefineLevel, g.BreakThroughTime));
+            if (_gearScratch.Count > 0) return GearSource.Self;
         }
         foreach (var e in TargetGear())
-            _gearScratch.Add((PartOf(e.ItemId, int.MaxValue), e.ItemId, 0L, 0));
-        if (_gearScratch.Count == 0 && _socialSnap is { Gear.Count: > 0 } s)
+            _gearScratch.Add((PartOf(e.ItemId, int.MaxValue), e.ItemId, 0L, 0, 0));
+        if (_gearScratch.Count > 0) return IsSelf ? GearSource.Self : GearSource.Live;
+        if (_socialSnap is { Gear.Count: > 0 } s)
+        {
             foreach (var g in s.Gear)
-                _gearScratch.Add((PartOf(g.EquipId, int.MaxValue), g.EquipId, 0L, 0));
+                _gearScratch.Add((PartOf(g.EquipId, int.MaxValue), g.EquipId, 0L, 0, 0));
+            return GearSource.Profile;
+        }
+        return GearSource.None;
     }
 
     private int PartOf(int itemId, int fallbackPart)
         => _services.GameData.Equip.GetEquipRow(itemId) is { } row ? row.EquipPart : fallbackPart;
 
-    private GearCard MakeGearCard(int part, int itemId, long uuid, int refine)
+    private GearCard MakeGearCard(int part, int itemId, long uuid, int refine, int stage)
     {
         var item = _services.GameData.Inventory.GetItem(itemId);
         var row  = _services.GameData.Equip.GetEquipRow(itemId);
-        return new GearCard
+        var stageGs = BreakthroughGs(itemId);
+        var card = new GearCard
         {
             ItemId = itemId, Uuid = uuid, Occupied = true,
-            Slot = _services.GameData.Equip.GetSlotName(part)
-                   ?? (part == WeaponPart ? "Weapon" : "—"),
-            Name = item is { Name.Length: > 0 } it ? it.Name : $"<{itemId}>",
-            Lv   = CardBottomLine(row?.Gs ?? 0, refine),
+            Slot = _services.GameData.Equip.GetSlotName(part) ?? (part == WeaponPart ? _loc.T("ei.gear.weapon") : "—"),
+            Name = item is { Name.Length: > 0 } it ? it.Name : "<" + itemId.ToString(CultureInfo.InvariantCulture) + ">",
             NameCol = QualityColOf(item?.Quality ?? 0),
+            BaseGs = row?.Gs ?? 0, Refine = refine, StageGs = stageGs,
         };
+        bool self = _gearSource == GearSource.Self;
+        if (self && stageGs is { Length: > 0 })
+        {
+            card.MaxStage = stageGs.Length;
+            card.Stage = stage < 0 ? 0 : stage > stageGs.Length ? stageGs.Length : stage;
+        }
+        card.Lock = !self && stageGs is { Length: > 0 };
+        card.Bottom = CardBottomLine(card, self);
+        return card;
     }
 
-    // Bottom card line: the item's gear level (GS from the equip table — what ZDPS's Gear Inspector
-    // shows per item, distinct from refine AND from the wear requirement) + refine when known (self
-    // only; others' refine is never public). Wear requirement renders as a labelled row in the detail
-    // popup — as a bare "Lv.45" here it read as strengthen level (caps 30), user-flagged 2026-06-13.
-    private static string CardBottomLine(int gs, int refine)
+    // The GS the card shows: self = the upgraded GS for the stage; others = the base GS (+ "+" when it can be upgraded).
+    private static int ShownGs(in GearCard c)
+        => c.Stage > 0 && c.StageGs is { } s && c.Stage <= s.Length ? s[c.Stage - 1] : c.BaseGs;
+
+    private string CardBottomLine(in GearCard c, bool self)
     {
-        var ci = System.Globalization.CultureInfo.InvariantCulture;
-        if (gs > 0 && refine > 0) return "GS " + gs.ToString(ci) + " · R" + refine.ToString(ci);
-        if (gs > 0) return "GS " + gs.ToString(ci);
-        return refine > 0 ? "Refine " + refine.ToString(ci) : "";
+        var ci = CultureInfo.InvariantCulture;
+        int gs = ShownGs(c);
+        if (gs <= 0) return c.Refine > 0 ? _loc.TFormat("ei.gear.refineOnly", c.Refine.ToString(ci)) : "";
+        var text = _loc.TFormat(c.Lock ? "ei.gear.gsPlus" : "ei.gear.gs", gs.ToString(ci));
+        if (self && c.Refine > 0) text += " · R" + c.Refine.ToString(ci);
+        return text;
     }
+
+    private object? GearIcon(int idx)
+    {
+        var c = _gearCards[idx];
+        if (!c.Occupied || c.ItemId <= 0) return null;
+        return _services.GameAssets.LoadItemIcon(c.ItemId, out _gearUv[idx]);
+    }
+
+    // Caption tag for the gear panel: where the list came from. Self needs none (always available).
+    private TagKind GearTag() => _gearSource switch
+    {
+        GearSource.Profile => TagKind.Profile,
+        GearSource.Live    => TagKind.Nearby,
+        GearSource.None    => IsSelf || IsFrozen ? TagKind.None : TagKind.Nearby,
+        _                  => TagKind.None,
+    };
 }
