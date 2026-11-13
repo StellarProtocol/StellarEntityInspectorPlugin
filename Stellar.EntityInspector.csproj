@@ -7,7 +7,7 @@
     <NoWarn>CS8632;CS8765</NoWarn>
     <RootNamespace>Stellar.EntityInspector</RootNamespace>
     <AssemblyName>Stellar.EntityInspector</AssemblyName>
-    <Version>2.3.0</Version>
+    <Version>3.0.0</Version>
     <Deterministic>true</Deterministic>
     <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
   </PropertyGroup>
