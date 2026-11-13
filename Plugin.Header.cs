@@ -53,6 +53,11 @@ public sealed partial class Plugin
     // TextElement in the status colour (the dot is plain text, which has the OS-font fallback for U+25CF).
     private const float NameLineH = 22f, StatusLineH = 18f;
 
+    // Runtime text (player name, game class/spec names, the session label) inside a rich-text line: legacy uGUI Text has
+    // no <noparse> (that is TextMeshPro), so a "<" that happens to form a tag ("<b>", "<size=40>") would be parsed. Swap
+    // it for the look-alike "‹" (U+2039; the plain path's OS-font fallback draws it). Allocates only when a "<" exists.
+    private static string RichSafe(string s) => s.IndexOf('<') < 0 ? s : s.Replace('<', '‹');
+
     private HudElement BuildStatusLine() => new TextElement(() => _statusLine, Color: StatusMainColor, NoWrap: true);
 
     private enum StatusKind : byte { Nearby, Far, Session }
@@ -93,8 +98,8 @@ public sealed partial class Plugin
             _stName = name; _stProf = prof; _stSub = sub;
             _hdrName = name;
             _hdrClass = ClassLine(prof, sub);
-            _hdrNameLine = "<size=16><b>" + _hdrName + "</b></size>" + (_hdrClass.Length > 0
-                ? "   <color=#" + _hdrMutedHex + ">" + _hdrClass + "</color>" : "");
+            _hdrNameLine = "<size=16><b>" + RichSafe(_hdrName) + "</b></size>" + (_hdrClass.Length > 0
+                ? "   <color=#" + _hdrMutedHex + ">" + RichSafe(_hdrClass) + "</color>" : "");
         }
         if (kind == _stKind && lvl == _stLvl && seasonLvl == _stSeasonLvl && fp == _stFp && season == _stSeason
             && age == _stAgeMin && ReferenceEquals(FrozenLabel, _stSession) && ReferenceEquals(lang, _stLang)
@@ -110,7 +115,7 @@ public sealed partial class Plugin
         switch (kind)
         {
             case StatusKind.Session:
-                _statusMain = _loc.TFormat("ei.status.session", FrozenLabel);
+                _statusMain = _loc.TFormat("ei.status.session", RichSafe(FrozenLabel));
                 _statusTail = " · " + _loc.T("ei.status.sessionTail");
                 break;
             case StatusKind.Far:

@@ -11,7 +11,8 @@ namespace Stellar.EntityInspector;
 // Intervals are fixed code defaults (repo Rule 12: no auto-tuning).
 public sealed partial class Plugin
 {
-    private const long LocAutoRefreshMs = 5_000;   // auto re-request period while on the social path
+    private const long LocAutoRefreshMs = 10_000;  // auto re-request period while on the social path — longer than the
+                                                   // 5 s floor so the manual Refresh is usable between auto requests
     private const long LocRefreshFloorMs = 5_000;  // hard floor per target, auto + manual combined (= manual cooldown)
     private const long LocAwaitMs = 10_000;        // a request with no reply by then stops counting as in flight
     private const long LocFetchHintMs = 10_000;    // "Fetching location…" until then, then the profile-card hint
