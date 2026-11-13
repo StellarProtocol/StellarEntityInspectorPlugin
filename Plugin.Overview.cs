@@ -41,6 +41,11 @@ public sealed partial class Plugin
     private const int MaxIdentityRows = 5, MaxElementalRows = 45;
     private const int AttrMaxHp = 11320;
 
+    // Overview stats the game DOES send for other players (FightAttr rows flagged IsSyncAoi, plus Attack SPD / Cast Speed,
+    // confirmed live) — see Knowledge Base\Other-Player-Stat-Visibility.md. Far: these show a faint "—" + the panel's
+    // Nearby tag (they'd arrive in range); every other id shows "Not shared" right away (it never arrives).
+    private static readonly System.Collections.Generic.HashSet<int> SharedForOthers = new() { 11320, 13400, 11720, 11730 };
+
     private enum RowState : byte { Value, Far, NotShared }
 
     // One SectionPanel's rows. Strings are kept per row and replaced only when an input changes.
@@ -129,9 +134,13 @@ public sealed partial class Plugin
         {
             var (id, ratingId) = p.Defs[i];
             RowState st; long raw = 0, rating = long.MinValue;
+            bool shared = SharedForOthers.Contains(id);
             if (id == AttrMaxHp && TargetVitals() is { IsKnown: true, MaxHp: > 0 } v) { st = RowState.Value; raw = v.MaxHp; }
-            else if (TryAttr(id, out raw) || IsSelf) st = RowState.Value;
-            else st = _isRemote ? RowState.Far : RowState.NotShared;
+            else if (IsSelf) { TryAttr(id, out raw); st = RowState.Value; }
+            // Other player: a live value wins (even for an id outside the set); an unshared id the wire sends as 0 is
+            // "not shared", not a real zero; missing → Nearby-pending only for ids that would arrive in range.
+            else if (TryAttr(id, out raw) && (raw != 0 || shared)) st = RowState.Value;
+            else st = _isRemote && shared ? RowState.Far : RowState.NotShared;
             if (st == RowState.Value && ratingId != 0 && TryAttr(ratingId, out var r)) rating = r;
             if (st == RowState.Far) far = true; else if (st == RowState.NotShared) notShared++;
 
