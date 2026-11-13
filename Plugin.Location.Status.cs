@@ -4,8 +4,11 @@ using Stellar.Abstractions.Domain;
 
 namespace Stellar.EntityInspector;
 
-// Location tab — online / last-seen status (user-approved 2026-11-13, plugin-only). Source = the game's own basic social
-// reply: Z.VMMgr.GetVM("social").AsyncGetSocialDataTypeBasic(charId, token) (social_vm.lua:28), run in
+// Location tab — online / last-seen status (user-approved 2026-11-13, plugin-only). Source = the game's own social reply,
+// requested with the FULL mask: Z.VMMgr.GetVM("social").AsyncGetSocialData(0, charId, token) (social_vm.lua). ⚠️ NOT the
+// basic-mask AsyncGetSocialDataTypeBasic: the framework's social cache is last-reply-wins, so a thin basic reply replaced
+// a carded player's full snapshot (ability score 0, profession 0 → "Lv 60 · 0" and an empty class tile, 2026-11-13).
+// Run in
 // Z.CoroUtil.create_coro_xpcall with Z.CancelSource.NeverCancelToken (interaction_action.lua:500). basicData.offlineTime
 // == 0 → online, else the Unix-MS time they went offline (union_vm.lua GetLastTimeDesignText: (ServerTime − it) / 1000 =
 // seconds → same domain as CombatSnapshot.ServerNowMs). basicData.personalState = status ids into ChatStatusTable
@@ -31,7 +34,7 @@ public sealed partial class Plugin
         "  e = { s = 0 }; store[cid] = e\n" +
         "  Z.CoroUtil.create_coro_xpcall(function()\n" +
         "    local vm = Z.VMMgr.GetVM('social')\n" +
-        "    local d = vm.AsyncGetSocialDataTypeBasic(cid, Z.CancelSource.NeverCancelToken)\n" +
+        "    local d = vm.AsyncGetSocialData(0, cid, Z.CancelSource.NeverCancelToken)\n" +
         "    local b = d and d.basicData\n" +
         "    if not b then e.s = 2; return end\n" +
         "    e.off = tonumber(b.offlineTime) or 0\n" +
