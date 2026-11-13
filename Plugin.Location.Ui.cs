@@ -23,6 +23,8 @@ public sealed partial class Plugin
         DataTag(() => _locFromSocial && !IsSelf ? TagKind.Profile : TagKind.None, TagCaptionH),
         new HudElement[]
         {
+            // Online / last seen (Plugin.Location.Status.cs) — one fixed 20 px line in every state (empty when unknown).
+            FixedLine(StateLineH, new TextElement(OnlineStatusLine, Color: OnlineStatusColor, NoWrap: true)),
             new ConditionalElement(() => _locState == LocState.Ok,
                 new RenderTextureHostElement(() => _locRaster?.Texture, LocPaneMin, LocPaneMin,
                     OnDrag: OnLocationDrag, OnScroll: OnLocationScroll, OnViewportResize: OnLocationPaneResize),
@@ -30,6 +32,10 @@ public sealed partial class Plugin
             new ConditionalElement(() => _locState != LocState.Ok, LocationEmptyBox(), Fill: true),
             new RowElement(new HudElement[]
             {
+                // ⚠️ The approved mockup puts "Last known position" ON the map (bottom-left); the toolkit can't overlay
+                // an element on a RenderTextureHost and the raster has no glyphs for localized text, so the dark pill
+                // leads the bar row right under the map's bottom-left corner instead.
+                new ConditionalElement(() => _locState == LocState.Ok && LocShowsLastKnown, LastKnownPill()),
                 new ConditionalElement(() => _locState == LocState.Ok, new RowElement(new HudElement[]
                 {
                     NeutralPill(() => _loc.T("ei.location.fullMap"), ShowFullMap, LocPillLabelW),
@@ -43,6 +49,19 @@ public sealed partial class Plugin
             StateLine(() => _locZone, () => TextColor(), bold: true),
             StateLine(LocDetailLine, () => MutedColor()),
         });
+
+    // Small dark pill (20 px, r9): black @60 % with a bold white label — reads as a map caption.
+    private HudElement LastKnownPill() => new BubbleElement(new RowElement(new HudElement[]
+    {
+        new SpacerElement(8f, 20f),
+        DropBold(new TextElement(() => _loc.T("ei.location.lastKnown"), Color: () => White, NoWrap: true, FontSize: 11)
+            { Bold = true }),
+        new SpacerElement(8f, 20f),
+    }, Gap: 0.01f))
+    {
+        FillColorFn = () => Fade(new ColorRgba(0f, 0f, 0f, 0.6f)), CornerRadius = RoundRadius(20f),
+        PaddingX = 0f, PaddingY = 0f, MaxWidth = 220f,
+    };
 
     // Same-size placeholder for the map: vertically centred via two Fill spacers (a Fill Conditional is the toolkit's
     // only flexible-height spacer).

@@ -74,6 +74,7 @@ public sealed partial class Plugin
         int side = Math.Min(_locRaster.W, _locRaster.H);
         int ox = (_locRaster.W - side) / 2, oy = (_locRaster.H - side) / 2;   // the square's top-left, canvas coords
         Resample(src.Base!, W, H, left, bottom, span, _locRaster, ox, oy, side);
+        if (LocShowsLastKnown) DimRaster(_locRaster);   // offline: a greyed "last known position" map
 
         // Base px → raster canvas coords (x right, y DOWN — the raster's primitive convention).
         float k = side / span;
@@ -141,6 +142,17 @@ public sealed partial class Plugin
                                          + LocBackdrop[ch] * (1f - al) + 0.5f);
                 dst[o + 3] = 255;
             }
+        }
+    }
+
+    // Offline target: desaturate halfway and darken to 55 % (markers are drawn after, so they stay bright).
+    private static void DimRaster(MinimapRaster r)
+    {
+        var px = r.Pixels;
+        for (int o = 0; o < px.Length; o += 4)
+        {
+            float g = 0.3f * px[o] + 0.59f * px[o + 1] + 0.11f * px[o + 2];
+            for (int ch = 0; ch < 3; ch++) px[o + ch] = (byte)((px[o + ch] * 0.5f + g * 0.5f) * 0.55f);
         }
     }
 
