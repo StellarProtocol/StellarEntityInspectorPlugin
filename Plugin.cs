@@ -234,7 +234,7 @@ public sealed partial class Plugin : IStellarPlugin, Stellar.PluginContracts.IFr
             SetPartyState(PartyState.Loading);
             System.Array.Clear(_gearCards, 0, _gearCards.Length);
             _gearSig = int.MinValue; _gearHasData = false; _gearSource = GearSource.None;
-            _statusMain = _statusTail = _hdrName = _hdrClass = ""; _stKind = (StatusKind)255;
+            _statusMain = _statusTail = _hdrName = _hdrClass = _hdrNameLine = _statusLine = ""; _stKind = (StatusKind)255;
             _hpLastHp = -1; _hpFrac = _shieldFrac = 0f; _hpLabel = "";
             return;
         }

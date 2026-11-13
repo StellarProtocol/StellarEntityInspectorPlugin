@@ -36,35 +36,31 @@ public sealed partial class Plugin
         HeaderIconTile(),
         new CellElement(new ColumnElement(new HudElement[]
         {
-            new RowElement(new HudElement[]
-            {
-                new TextElement(() => _hdrName, Color: () => TextColor(), Emphasis: true, NoWrap: true),
-                new CellElement(new TextElement(() => _hdrClass, Color: () => MutedColor(), NoWrap: true) { Ellipsize = true },
-                    Weight: 1f),
-            }, Gap: 8f),
-            BuildStatusLine(),
+            // Name + class/spec as ONE rich-text plain TextElement, NoWrap (overflow clips at the edge), on a fixed-height
+            // line. ⚠️ Two auto-sized texts in a Row (the first build: bold name + an ellipsized class cell) let the HLG
+            // squeeze one, and Unity then computed a 2-line preferredHeight: "Stormblade · Moonstrike" wrapped and the
+            // header grew ~23 px, pushing the tab track down (in-game review 2026-11-13; the pre-redesign code had
+            // documented the same bug). One element = nothing to squeeze; the strut pins the height in every state.
+            FixedLine(NameLineH, new TextElement(() => _hdrNameLine, Color: () => TextColor(), NoWrap: true)),
+            FixedLine(StatusLineH, BuildStatusLine()),
         }, Gap: 2f), Weight: 1f),
         HelpButton(),
     }, Gap: 10f);
 
     // Status line: [● dot] bold coloured main part + muted tail. The dot is PLAIN text "●" (legacy uGUI Text with OS
     // font fallback — the bold/TMP path's Noto Sans has no U+25CF and draws nothing, Party tab finding).
-    private HudElement BuildStatusLine() => new RowElement(new HudElement[]
-    {
-        new ConditionalElement(() => _statusKind != StatusKind.Session, new RowElement(new HudElement[]
-        {
-            new TextElement(() => "●", Color: StatusMainColor, NoWrap: true),
-            new SpacerElement(4f, 0f),
-        }, Gap: 0.01f)),
-        new TextElement(() => _statusMain, Color: StatusMainColor, NoWrap: true, FontSize: 13) { Bold = true },
-        new CellElement(new TextElement(() => _statusTail, Color: () => MutedColor(), NoWrap: true) { Ellipsize = true },
-            Weight: 1f),
-    }, Gap: 0.01f);
+    // Same one-element rule as the name line: "● <b>main</b><color=muted> · tail</color>" as one plain rich-text NoWrap
+    // TextElement in the status colour (the dot is plain text, which has the OS-font fallback for U+25CF).
+    private const float NameLineH = 22f, StatusLineH = 18f;
+
+    private HudElement BuildStatusLine() => new TextElement(() => _statusLine, Color: StatusMainColor, NoWrap: true);
 
     private enum StatusKind : byte { Nearby, Far, Session }
     private StatusKind _statusKind;
     private string _statusMain = "", _statusTail = "";
-    private string _hdrName = "", _hdrClass = "";
+    private string _hdrName = "", _hdrClass = "", _hdrNameLine = "", _statusLine = "";
+    private ColorRgba _hdrMutedOf;
+    private string _hdrMutedHex = "";
 
     private ColorRgba? StatusMainColor() => _statusKind switch
     {
@@ -89,14 +85,20 @@ public sealed partial class Plugin
         var name = NameLine();
         int prof = ProfessionValue(), sub = SpecValue();
 
-        if (!ReferenceEquals(name, _stName) || prof != _stProf || sub != _stSub || !ReferenceEquals(lang, _stLang))
+        var muted = MutedColor();
+        bool mutedChanged = !muted.Equals(_hdrMutedOf) || _hdrMutedHex.Length == 0;
+        if (mutedChanged) { _hdrMutedOf = muted; _hdrMutedHex = HexOf(muted); }
+        if (mutedChanged || !ReferenceEquals(name, _stName) || prof != _stProf || sub != _stSub || !ReferenceEquals(lang, _stLang))
         {
             _stName = name; _stProf = prof; _stSub = sub;
             _hdrName = name;
             _hdrClass = ClassLine(prof, sub);
+            _hdrNameLine = "<size=16><b>" + _hdrName + "</b></size>" + (_hdrClass.Length > 0
+                ? "   <color=#" + _hdrMutedHex + ">" + _hdrClass + "</color>" : "");
         }
         if (kind == _stKind && lvl == _stLvl && seasonLvl == _stSeasonLvl && fp == _stFp && season == _stSeason
-            && age == _stAgeMin && ReferenceEquals(FrozenLabel, _stSession) && ReferenceEquals(lang, _stLang)) return;
+            && age == _stAgeMin && ReferenceEquals(FrozenLabel, _stSession) && ReferenceEquals(lang, _stLang)
+            && !mutedChanged) return;
         _stKind = kind; _stLvl = lvl; _stSeasonLvl = seasonLvl; _stFp = fp; _stSeason = season; _stAgeMin = age;
         _stSession = FrozenLabel; _stLang = lang;
 
@@ -123,6 +125,8 @@ public sealed partial class Plugin
                             + (season > 0 ? " · " + _loc.TFormat("ei.status.illusion", season.ToString("N0", ci)) : "");
                 break;
         }
+        _statusLine = (kind == StatusKind.Session ? "" : "● ") + "<b>" + _statusMain + "</b><color=#" + _hdrMutedHex + ">"
+                    + _statusTail + "</color>";
     }
 
     // Age of the cached profile reply in whole minutes (its location stamp — the one reply field the framework stamps);
