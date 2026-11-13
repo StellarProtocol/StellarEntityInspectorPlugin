@@ -38,6 +38,11 @@ public sealed partial class Plugin
                     GearGridRow(1),
                     GearGridRow(6),
                 }, Gap: GridGap)),
+                // Reminder for other players' gear: breakthrough isn't shared. Two fixed lines in every state (empty for
+                // yourself / no gear) so nothing jumps; the longest locales need the second line at the 980 px minimum.
+                FixedLine(2f * StateLineH, new TextElement(
+                    () => _gearHasData && _gearSource != GearSource.Self ? _loc.T("ei.gear.breakthroughNote") : "",
+                    Color: () => MutedColor()) { Ellipsize = true, MaxLines = 2 }),
             }, Gap: PanelGap), 300f),
         });
 

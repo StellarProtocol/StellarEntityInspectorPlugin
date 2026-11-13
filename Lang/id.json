@@ -34,6 +34,7 @@
   "ei.gd.upgrade": "Peningkatan",
   "ei.gd.whoOther": "Pemain lain",
   "ei.gd.whoSelf": "Anda",
+  "ei.gear.breakthroughNote": "Peningkatan (breakthrough) perlengkapan pemain lain tidak dibagikan oleh game. Tanda \"+\" setelah GS berarti bisa lebih tinggi.",
   "ei.gear.emptyNote": "Perlengkapan muncul setelah Anda mendekati pemain ini.",
   "ei.gear.gs": "GS {0}",
   "ei.gear.gsPlus": "GS {0}+",

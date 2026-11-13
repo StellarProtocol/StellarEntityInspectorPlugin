@@ -34,6 +34,7 @@
   "ei.gd.upgrade": "Upgrade",
   "ei.gd.whoOther": "Another player",
   "ei.gd.whoSelf": "You",
+  "ei.gear.breakthroughNote": "Other players' gear upgrade (breakthrough) isn't shared by the game. A \"+\" after GS means it may be higher.",
   "ei.gear.emptyNote": "Equipment appears once you've been near this player.",
   "ei.gear.gs": "GS {0}",
   "ei.gear.gsPlus": "GS {0}+",

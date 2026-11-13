@@ -34,6 +34,7 @@
   "ei.gd.upgrade": "突破",
   "ei.gd.whoOther": "他のプレイヤー",
   "ei.gd.whoSelf": "あなた",
+  "ei.gear.breakthroughNote": "他のプレイヤーの装備突破はゲームから共有されません。GSの後ろの「+」は、さらに高い可能性を示します。",
   "ei.gear.emptyNote": "このプレイヤーに近づくと装備が表示されます。",
   "ei.gear.gs": "GS {0}",
   "ei.gear.gsPlus": "GS {0}+",

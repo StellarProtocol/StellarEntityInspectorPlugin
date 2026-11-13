@@ -34,6 +34,7 @@
   "ei.gd.upgrade": "Upgrade",
   "ei.gd.whoOther": "Ibang manlalaro",
   "ei.gd.whoSelf": "Ikaw",
+  "ei.gear.breakthroughNote": "Hindi ibinabahagi ng laro ang upgrade (breakthrough) ng gear ng ibang manlalaro. Ang \"+\" pagkatapos ng GS ay nangangahulugang maaaring mas mataas pa.",
   "ei.gear.emptyNote": "Lumalabas ang kagamitan kapag nakalapit ka na sa manlalarong ito.",
   "ei.gear.gs": "GS {0}",
   "ei.gear.gsPlus": "GS {0}+",
