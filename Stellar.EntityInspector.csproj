@@ -29,5 +29,8 @@
     <EmbeddedResource Include="Lang/id.json" LogicalName="Stellar.EntityInspector.Lang.id.json" />
     <EmbeddedResource Include="Lang/fil.json" LogicalName="Stellar.EntityInspector.Lang.fil.json" />
     <EmbeddedResource Include="Lang/ko.json" LogicalName="Stellar.EntityInspector.Lang.ko.json" />
+    <!-- Window glyphs (data tags radar/lock/card, hatched undyed swatch, popover ✕): white flat PNGs, one pre-drawn
+         bitmap per on-screen size (tools/gen_icons.py → Icons/<name>-<px>.png), tinted with theme colours at draw time. -->
+    <EmbeddedResource Include="Icons/*.png" LogicalName="Stellar.EntityInspector.Icons.%(Filename).png" />
   </ItemGroup>
 </Project>
