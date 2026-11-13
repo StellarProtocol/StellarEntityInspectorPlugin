@@ -16,9 +16,9 @@
          theme status colours (Success / Caution / Danger), WindowSpec.Prebuild + ConditionalElement.Prebuild/KeepAlive
          (instant tab switches), EntityVitals.Shield (HP bar shield segment), SocialIdentity title + collect points,
          FashionEntry.DyeAreas (wardrobe dye slots), SocialSnapshot.Location/Party (Location + Party tabs). -->
-    <PackageReference Include="Stellar.Abstractions"       Version="2.31.0" />
-    <PackageReference Include="Stellar.PluginContracts"    Version="2.31.0" />
-    <PackageReference Include="Stellar.Plugin.InteropRefs" Version="2.31.0" />
+    <PackageReference Include="Stellar.Abstractions"       Version="2.32.0" />
+    <PackageReference Include="Stellar.PluginContracts"    Version="2.32.0" />
+    <PackageReference Include="Stellar.Plugin.InteropRefs" Version="2.32.0" />
   </ItemGroup>
   <!-- Local overrides: deploy targets, game paths, local framework refs — all in Local.props (gitignored) -->
   <Import Project="$(MSBuildThisFileDirectory)Local.props" Condition="Exists('$(MSBuildThisFileDirectory)Local.props')" />
