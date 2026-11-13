@@ -10,7 +10,7 @@ namespace Stellar.EntityInspector;
 // equipment list for ANY entity; for SELF the cards prefer the decoded GearInstance list (uuid → actual rolls in the
 // popover, refine, breakthrough stage). Far players fall back to the cached social reply (slot + id only).
 // Breakthrough (approved prototype; KB Gear-Breakthrough-Visibility.md): the stage is NOT visible for other players, so
-//   • others: "GS <base>", or "GS 260+" + a small lock tag when the piece HAS breakthrough stages;
+//   • others: "GS <base>", or "GS 260+" when the piece HAS breakthrough stages (no lock tag — user 2026-11-13);
 //   • self:   the real upgraded GS (EquipBreakThroughTable.EquipGs for the stage) + " · R<refine>" + a stage bar.
 // Stage GS values come from the plugin-side Lua read (Plugin.LuaTables.cs), once per equip id. Snapshotted at 10 Hz into a
 // fixed card array, re-formatted only when the gear (or a Lua reply) changed; the element Funcs only read it.
@@ -24,7 +24,7 @@ public sealed partial class Plugin
         public int ItemId; public long Uuid; public bool Occupied;
         public string Slot; public string Name; public string Bottom;
         public ColorRgba NameCol;
-        public bool Lock;                    // others: the piece has breakthrough stages we can't see
+        public bool Lock;                    // others: the piece has breakthrough stages we can't see → "GS 260+"
         public int Stage, MaxStage;          // self: stage bar (MaxStage 0 = no bar)
         public int BaseGs, Refine;
         public int[]? StageGs;               // upgraded GS per stage (null = unknown)
