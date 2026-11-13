@@ -97,8 +97,6 @@ public sealed partial class Plugin
             new HudElement[] { DetailList(_gdBasic) }),
         new ConditionalElement(() => _gdAdv.Count > 0,
             SectionPanel(() => _gdAdvCaption, NoHint, DetailList(_gdAdv))),
-        new ConditionalElement(() => _gdOthers,
-            new TextElement(() => _loc.T("ei.gd.notPublicRolls"), Color: () => MutedColor())),
     }, Gap: 10f);
 
     private object? GearDetailIcon()

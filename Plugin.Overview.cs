@@ -42,6 +42,20 @@ public sealed partial class Plugin
     private const int MaxIdentityRows = 5, MaxElementalRows = 45;
     private const int AttrMaxHp = 11320;
 
+    // Movement stats: the game's English OfficialName is "Speed" / "Mount Speed" for all three of each set (two identical
+    // rows in UTILITY), so these ids get our own labels (FightAttrTable's Chinese names: 走路 / 跑步 / 冲刺, 载具…).
+    private static readonly (int Id, string Key)[] LabelOverrides =
+    {
+        (10200, "ei.stat.walkSpeed"), (10210, "ei.stat.runSpeed"), (10220, "ei.stat.dashSpeed"),
+        (10240, "ei.stat.mountWalkSpeed"), (10250, "ei.stat.mountRunSpeed"), (10260, "ei.stat.mountDashSpeed"),
+    };
+
+    private string StatLabel(int id)
+    {
+        foreach (var (oid, key) in LabelOverrides) if (oid == id) return _loc.T(key);
+        return AttrLabel(id);
+    }
+
     // Overview stats the game DOES send for other players (FightAttr rows flagged IsSyncAoi, plus Attack SPD / Cast Speed,
     // confirmed live) — Knowledge Base\Other-Player-Stat-Visibility.md. For these a received 0 is a real zero; for every
     // other id a 0 on another player is the "not shared" placeholder and gets no row.
@@ -133,7 +147,7 @@ public sealed partial class Plugin
             bool reformat = p.Changed(n, id, raw, rating, force);
             if (reformat)
             {
-                p.Labels[n] = AttrLabel(id);
+                p.Labels[n] = StatLabel(id);
                 p.Values[n] = FormatAttr(AttrNumType(id), raw) + (rating == long.MinValue ? "" : RatingSuffix(rating));
             }
             n++;

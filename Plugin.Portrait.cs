@@ -28,10 +28,40 @@ public sealed partial class Plugin
                 TransparentBackground: true),   // only the character draws — no dark box behind (user request 2026-06-13)
             new TextElement(() => _loc.T("ei.portrait.gestures"), Color: () => MutedColor(), NoWrap: true, FontSize: 12)
                 { Ellipsize = true, Height = 16f },
-            FixedLine(HpBarH, BuildHpBar()),   // same row height with or without vitals (far = empty bar, "—")
-            BuildImagineTile(0),
-            BuildImagineTile(1),
+            // Far other player (no live HP, no imagines): ONE placeholder box of exactly the block's height, so the model
+            // area is the same size far and nearby (user option A, 2026-11-13). Nearby / self / session view: the block.
+            new ConditionalElement(() => !PortraitFar(),
+                Then: new ColumnElement(new HudElement[]
+                {
+                    FixedLine(HpBarH, BuildHpBar()),
+                    BuildImagineTile(0),
+                    BuildImagineTile(1),
+                }, Gap: PortraitBlockGap),
+                Else: PortraitFarBox()),
         });
+
+    // HP row + 2 imagine tiles + the panel column's two 6 px gaps (CaptionedPanel's Column Gap) = the placeholder's height.
+    private const float PortraitBlockGap = 6f;
+    private const float PortraitBlockH = HpBarH + 2f * TileRowH + 2f * PortraitBlockGap;
+
+    private bool PortraitFar() => _isRemote && !IsSelf && !IsFrozen;
+
+    // Faint 1 px ring (the Location / Wardrobe empty-state look), centred [Nearby tag, muted 2-line text], pinned height.
+    private HudElement PortraitFarBox() => new BubbleElement(new RowElement(new HudElement[]
+    {
+        new SpacerElement(0f, PortraitBlockH),
+        new CellElement(new ColumnElement(new HudElement[]
+        {
+            new RowElement(new HudElement[] { DataTag(() => TagKind.Nearby, TagCaptionH) }, Gap: 0.01f, Justify: RowJustify.Center),
+            new TextElement(() => _loc.T("ei.portrait.farNote"), Color: () => MutedColor(), Align: TextAlign.Center)
+                { MaxLines = 2, Ellipsize = true },
+        }, Gap: 4f), Weight: 1f),
+    }, Gap: 0.01f))
+    {
+        FillColorFn = () => Transparent,
+        OutlineColorFn = () => Fade(TextColor() with { A = 0.15f }),
+        CornerRadius = TileRadius, PaddingX = 8f, PaddingY = 0f,
+    };
 
     // ── Weapon chip (house "clickable on/off chip", as Wardrobe's PREVIEW chip) ───────────────────────────────────
     // ONE fixed-width cell → a Conditional swapping two COMPLETE chips (never a Conditional inside a bubble's measured

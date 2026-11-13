@@ -80,10 +80,8 @@ public sealed partial class Plugin
         foreach (var libId in row.AdvancedAttrLibIds)
             foreach (var e in AdvancedLibEntries(libId, row))
                 AddAttrRange(e);
-        // Recast (reforge) is a runtime player choice stored per-instance with no item-table pool, so it has no
-        // "possible range" for others — say so, so its absence reads as a data limit (user-flagged 2026-06-13).
-        AddGdSub(_loc.T("ei.gd.recast"));
-        AddGdLine(_loc.T("ei.gd.reforgeNote"));
+        // Recast (reforge) is per-instance with no table pool, so others have no "possible range" — no row, no footnote
+        // (show only what we get, user decision 2026-11-13).
     }
 
     // Self rolls arrive as (lib ROW id, percentile 0–100): each row expands to one or more table entries; displayed stat
