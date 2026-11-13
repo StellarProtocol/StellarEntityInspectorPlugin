@@ -11,6 +11,8 @@ namespace Stellar.EntityInspector;
 //   • dye zones         — FashionTable[fashionId].ColorPart (+ ColorPartfree) (fashion_colour_disc_sub_view.lua:310-322;
 //                         KB Fashion-Dye-Areas.md)
 //   • wardrobe part name — ItemTypeTable[region].Name, HeadWearSecond shown as Headwear (fashion_vm.lua GetRegionName)
+//   • advanced style     — FashionAdvancedTable[id] {Name, Quality, Icon, FashionId}: unlocked alternate styles (9-digit
+//                          ids = base ×100 + NN) are FashionTable rows but NOT ItemTable rows (style_icon_loop_item.lua:31)
 // Idioms copied from the game Lua: `Z.TableMgr.GetRow(<mgr>, key, true)` (true = no logError on a miss) and
 // `require("table.EquipTableMap")` — the DOT separator the game itself uses (equip_config_data.lua:8), so we get the SAME
 // cached module table (a "/" require would load a phantom second copy).
@@ -26,7 +28,7 @@ public sealed partial class Plugin
     private const int LuaLookupsPerTick = 6;
     private const int LuaMaxAttempts = 2;   // a key whose read failed this often is cached as unknown ("?")
 
-    private enum LuaKind { Title = 1, Breakthrough = 2, DyeZones = 3, RegionName = 4 }
+    private enum LuaKind { Title = 1, Breakthrough = 2, DyeZones = 3, RegionName = 4, AdvancedStyle = 5 }
 
     // kind → id → raw reply: "" (none), "?" (unknown), or the payload. Pending keys are simply absent.
     private readonly Dictionary<long, string> _luaCache = new();
@@ -68,6 +70,11 @@ public sealed partial class Plugin
         "  local r = TM.GetRow('ItemTypeTableMgr', region, true)\n" +
         "  if not r then return '?' end\n" +
         "  return tostring(r.Name or '')\n" +
+        "elseif kind == 5 then\n" +
+        "  local r = TM.GetRow('FashionAdvancedTableMgr', id, true)\n" +
+        "  if not r then return '' end\n" +
+        "  return tostring(r.Name or '') .. '\\t' .. tostring(math.floor(r.Quality or 0)) .. '\\t' ..\n" +
+        "         tostring(r.Icon or '') .. '\\t' .. tostring(math.floor(r.FashionId or 0))\n" +
         "end\n" +
         "return '?'\n" +
         "end) end)";
@@ -136,6 +143,28 @@ public sealed partial class Plugin
     {
         var r = LuaLookup(LuaKind.RegionName, region);
         return r is null or "?" ? null : r;
+    }
+
+    // An alternate (advanced) wardrobe style: Icon is a raw asset address like ItemTable.Icon ("…_icon_f_vampire01up02");
+    // BaseId = the base piece. null = pending / not an advanced style / unreadable.
+    private readonly record struct AdvancedStyleRow(string Name, int Quality, string Icon, int BaseId);
+    private readonly System.Collections.Generic.Dictionary<int, AdvancedStyleRow?> _advCache = new();
+
+    private AdvancedStyleRow? AdvancedStyle(int fashionId)
+    {
+        if (_advCache.TryGetValue(fashionId, out var hit)) return hit;
+        var raw = LuaLookup(LuaKind.AdvancedStyle, fashionId);
+        if (raw is null) return null;                      // pending — not cached, asked again next tick
+        AdvancedStyleRow? row = null;
+        var f = raw.Split('\t');
+        if (f.Length == 4)
+        {
+            int.TryParse(f[1], NumberStyles.Integer, CultureInfo.InvariantCulture, out var q);
+            int.TryParse(f[3], NumberStyles.Integer, CultureInfo.InvariantCulture, out var b);
+            row = new AdvancedStyleRow(f[0], q, f[2], b);
+        }
+        _advCache[fashionId] = row;
+        return row;
     }
 
     private int[]? LuaIntList(LuaKind kind, int id, bool sortForDye)
