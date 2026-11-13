@@ -9,7 +9,6 @@ StellarWardrobeLoadout/tools/gen_icons.py.
 
 Glyphs:
   radar  - the "Nearby" data tag: a centre dot + two arcs (data that needs the player in range)
-  lock   - the "Not shared" data tag: a padlock (never sent for other players)
   card   - the "Profile" data tag: an ID card (from the player's profile reply)
   hatch  - the undyed "Default" swatch: a rounded square with diagonal hatching
   close  - the round x button of the popovers
@@ -28,7 +27,7 @@ OUT = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "Icons")
 SCALES = [0.75, 1.0, 1.25, 1.5, 2.0]
 
 # name -> glyph size in canvas units (what the window draws). Keep in sync with Plugin.Style.Blocks.cs.
-UNITS = {"radar": 12, "lock": 12, "card": 12, "hatch": 12, "close": 14, "pin": 16}
+UNITS = {"radar": 12, "card": 12, "hatch": 12, "close": 14, "pin": 16}
 
 
 def sizes_for(units):
@@ -102,15 +101,6 @@ def radar(n):
     return p.done()
 
 
-def lock(n):
-    p = Pen(n)
-    p.rect(5, 12, 19, 21, 2, fill=True)          # body
-    p.arc(12, 8.5, 4.5, 180, 360)                # shackle top, lifted clear of the body
-    p.line((7.5, 8.5), (7.5, 12))
-    p.line((16.5, 8.5), (16.5, 12))
-    return p.done()
-
-
 def card(n):
     p = Pen(n)
     p.rect(3, 5, 21, 19, 2)                      # card outline
@@ -155,7 +145,7 @@ def close(n):
     return p.done()
 
 
-DRAW = {"radar": radar, "lock": lock, "card": card, "hatch": hatch, "close": close, "pin": pin}
+DRAW = {"radar": radar, "card": card, "hatch": hatch, "close": close, "pin": pin}
 
 if __name__ == "__main__":
     os.makedirs(OUT, exist_ok=True)

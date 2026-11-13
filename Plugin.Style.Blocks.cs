@@ -50,7 +50,6 @@ public sealed partial class Plugin
 
     // Sizes = round(units × {0.75, 1, 1.25, 1.5, 2}) ∪ {16, 32} — keep in sync with tools/gen_icons.py.
     private static readonly IconSet RadarIcon = new("radar", 12, 9, 12, 15, 16, 18, 24, 32);   // "Nearby" tag
-    private static readonly IconSet LockIcon  = new("lock", 12, 9, 12, 15, 16, 18, 24, 32);    // "Not shared" tag
     private static readonly IconSet CardIcon  = new("card", 12, 9, 12, 15, 16, 18, 24, 32);    // "Profile" tag
     private static readonly IconSet HatchIcon = new("hatch", 12, 9, 12, 15, 16, 18, 24, 32);   // undyed "Default" swatch
     private static readonly IconSet CloseIcon = new("close", 14, 10, 14, 16, 18, 21, 28, 32);
@@ -146,43 +145,26 @@ public sealed partial class Plugin
     }, Gap: 0.01f);
 
     // ── data-availability tags (approved prototype "Data-availability tags") ────────────────────────────────────────
-    // A round chip: 12 px baked white glyph tinted with the tag colour + bold 11 label. 20 px in a caption slot, 18 px
-    // inline in a value cell. Kind is LIVE (label, colours and glyph all follow it), so one element serves every state;
+    // A round chip: 12 px baked white glyph tinted with the tag colour + bold 11 label, 20 px, in a panel caption slot. Kind is LIVE (label, colours and glyph all follow it), so one element serves every state;
     // None hides it. MaxWidth pins the cap: a MaxWidth-0 bubble under a Conditional caps itself at the 100 px default
     // (KB WindowBuilder-Patterns, Dungeon Confirm 6b19310) and "ไม่ได้แชร์" / "Hindi ibinabahagi" are wider than that.
-    private enum TagKind : byte { None, Nearby, NotShared, Profile }
+    private enum TagKind : byte { None, Nearby, Profile }
 
-    private const float TagCaptionH = 20f, TagInlineH = 18f, TagMaxW = 170f;
-    private const float NearbyWashAlpha = 0.18f, NotSharedWashAlpha = 0.08f, ProfileWashAlpha = 0.15f;
+    private const float TagCaptionH = 20f, TagMaxW = 170f;
+    private const float NearbyWashAlpha = 0.18f, ProfileWashAlpha = 0.15f;
 
     private HudElement DataTag(Func<TagKind> kind, float height)
     {
         var text = new ContrastCache();
-        ColorRgba Fill(TagKind k) => k switch
-        {
-            TagKind.Nearby    => Over(AccentColor() with { A = NearbyWashAlpha }, PanelColor()),
-            TagKind.Profile   => Over(SuccessColor() with { A = ProfileWashAlpha }, PanelColor()),
-            _                 => Over(TextColor() with { A = NotSharedWashAlpha }, PanelColor()),
-        };
-        // "muted-light" for Not shared = halfway between muted and text; the coloured kinds keep 4.5:1 on their wash.
-        ColorRgba Ink(TagKind k) => k switch
-        {
-            TagKind.Nearby  => text.Get(AccentColor(), Fill(k), PillMinContrast),
-            TagKind.Profile => text.Get(SuccessColor(), Fill(k), PillMinContrast),
-            _               => Mix(MutedColor(), TextColor(), 0.45f),
-        };
-        byte[]? Icon(TagKind k) => (k switch
-        {
-            TagKind.Nearby  => RadarIcon,
-            TagKind.Profile => CardIcon,
-            _               => LockIcon,
-        }).Pick(_uiScale);
-        string Label(TagKind k) => _loc.T(k switch
-        {
-            TagKind.Nearby  => "ei.tag.nearby",
-            TagKind.Profile => "ei.tag.profile",
-            _               => "ei.tag.notShared",
-        });
+        ColorRgba Fill(TagKind k) => k == TagKind.Profile
+            ? Over(SuccessColor() with { A = ProfileWashAlpha }, PanelColor())
+            : Over(AccentColor() with { A = NearbyWashAlpha }, PanelColor());
+        // The coloured label keeps 4.5:1 on its wash.
+        ColorRgba Ink(TagKind k) => k == TagKind.Profile
+            ? text.Get(SuccessColor(), Fill(k), PillMinContrast)
+            : text.Get(AccentColor(), Fill(k), PillMinContrast);
+        byte[]? Icon(TagKind k) => (k == TagKind.Profile ? CardIcon : RadarIcon).Pick(_uiScale);
+        string Label(TagKind k) => _loc.T(k == TagKind.Profile ? "ei.tag.profile" : "ei.tag.nearby");
         return new ConditionalElement(() => kind() != TagKind.None, new BubbleElement(new RowElement(new HudElement[]
         {
             new SpacerElement(6f, height),

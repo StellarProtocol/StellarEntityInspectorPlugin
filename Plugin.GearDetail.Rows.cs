@@ -11,7 +11,7 @@ namespace Stellar.EntityInspector;
 // the pooled row element both popover panels draw with. Split out of Plugin.GearDetail.cs (file-size gate).
 public sealed partial class Plugin
 {
-    // One pooled row list: label (muted) … value (right) | inline "Not shared" tag | a full-width muted line | a bold
+    // One pooled row list: label (muted) … value (right) | a full-width muted line | a bold
     // muted sub-heading (Recast / Rare). Each kind is its own Conditional so a row never re-measures another kind's parts.
     private HudElement DetailList(DetailRows rows)
     {
@@ -27,16 +27,14 @@ public sealed partial class Plugin
                     new TextElement(Label, Color: () => MutedColor(), NoWrap: true, FontSize: 11) { Bold = true, Height = 20f }),
                 new ConditionalElement(() => Kind() == DetailKind.Line,
                     new TextElement(Label, Color: () => MutedColor())),
-                new ConditionalElement(() => Kind() is DetailKind.Value or DetailKind.NotShared,
+                new ConditionalElement(() => Kind() == DetailKind.Value,
                     FixedLine(22f, new RowElement(new HudElement[]
                     {
                         new CellElement(new TextElement(Label, Color: () => MutedColor(), NoWrap: true) { Ellipsize = true },
                             Weight: 1f),
                         new SpacerElement(6f, 0f),
-                        DataTag(() => Kind() == DetailKind.NotShared ? TagKind.NotShared : TagKind.None, TagInlineH),
-                        new ConditionalElement(() => Kind() == DetailKind.Value,
-                            new TextElement(() => idx < rows.Count ? rows.Values[idx] : "", Color: () => TextColor(),
-                                Align: TextAlign.Right, NoWrap: true)),
+                        new TextElement(() => idx < rows.Count ? rows.Values[idx] : "", Color: () => TextColor(),
+                            Align: TextAlign.Right, NoWrap: true),
                     }, Gap: 0.01f))),
             }, Gap: 0.01f);
         }

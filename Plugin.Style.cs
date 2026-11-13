@@ -29,7 +29,6 @@ public sealed partial class Plugin
     private const float SolidMinContrast = 3.0f;    // white on a SOLID fill (Primary) keeps white down to 3:1
     private const float ChipWashAlpha    = 0.22f;   // coloured chip = bold coloured text on a 22% wash of its colour
     private const float HoverMix         = 0.10f;   // hover = 10% MenuText over the fill
-    private const float FaintTextAlpha   = 0.32f;   // a far player's missing value "—" (spec: Text@0.32)
     private static readonly ColorRgba SolidDarkLabel = new(0.12f, 0.12f, 0.12f);   // #1F1F1F: label when white < 3:1
     private static readonly ColorRgba White       = new(1f, 1f, 1f);
     private static readonly ColorRgba Transparent = new(0f, 0f, 0f, 0f);   // NOT null: a null FillColorFn = the default accent blob
@@ -41,7 +40,6 @@ public sealed partial class Plugin
     private ColorRgba AccentColor()  => Menu.MenuAccent;
     private ColorRgba SuccessColor() => Menu.Success;
     private ColorRgba CautionColor() => Menu.Caution;
-    private ColorRgba FaintText()    => Menu.MenuText with { A = FaintTextAlpha };
     private ColorRgba PanelColor()   => Over(PanelShade, Menu.MenuBackground);
     private ColorRgba TileColor()    => Over(Menu.MenuAccent with { A = TileAccentMix },
                                              Over(Menu.MenuText with { A = TileTextMix }, PanelColor()));

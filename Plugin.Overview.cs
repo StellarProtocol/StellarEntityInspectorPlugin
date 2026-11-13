@@ -5,14 +5,15 @@ using Stellar.Abstractions.Services;
 namespace Stellar.EntityInspector;
 
 // Overview tab — data. Curated grouped stats as SectionPanels (approved prototype): IDENTITY, CORE, PRIMARY, SECONDARY,
-// OFFENSE, DEFENSE, HEALING & SHIELDS, UTILITY, ELEMENTAL (hidden when all zero). Fixed panels are FIXED id lists; names
-// + value format resolve via IGameData.Combat.GetAttribute. Percent stats pair with their flat rating id ("31.20% (5,880)",
-// rating muted and smaller). The old header strip's ATK/Crit/Haste/Luck now lives in CORE (Crit/Haste/Luck moved there
-// from SECONDARY so they show once).
-// Every row's availability is decided LIVE (no hard-coded list): value present → value; missing + far → faint "—" and a
-// Nearby tag on the panel caption; missing + nearby (not self) → an inline "Not shared" tag + "N not shared" caption hint.
-// Self: an absent id means zero (everything self-relevant is broadcast or polled).
-// Rebuilt at 10 Hz into per-row cached strings that are re-formatted ONLY when the row's raw value / state changed — the
+// OFFENSE, DEFENSE, HEALING & SHIELDS, UTILITY, ELEMENTAL. Fixed panels are FIXED id lists; names + value format resolve
+// via IGameData.Combat.GetAttribute. Percent stats pair with their flat rating id ("31.20% (5,880)", rating muted and
+// smaller). The old header strip's ATK/Crit/Haste/Luck now lives in CORE (Crit/Haste/Luck moved there from SECONDARY).
+// "Show only what we actually get" (user decision 2026-11-13, supersedes the per-row Not-shared tags):
+//   • self: every row (an absent id means zero — everything self-relevant is broadcast or polled);
+//   • other players: a row exists ONLY when a real value arrived for it. Missing ids, and the ids the game never shares
+//     for others (sent as 0), get no row at all; a panel with no rows isn't rendered. Far → usually IDENTITY only, under
+//     the fixed "Detailed stats sync only while this player is near you." line.
+// Rows are compacted into each panel's pooled slots and re-formatted ONLY when a slot's id / raw value changed — the
 // element Funcs are pure array reads and a steady sheet allocates nothing.
 public sealed partial class Plugin
 {
@@ -42,49 +43,38 @@ public sealed partial class Plugin
     private const int AttrMaxHp = 11320;
 
     // Overview stats the game DOES send for other players (FightAttr rows flagged IsSyncAoi, plus Attack SPD / Cast Speed,
-    // confirmed live) — see Knowledge Base\Other-Player-Stat-Visibility.md. Far: these show a faint "—" + the panel's
-    // Nearby tag (they'd arrive in range); every other id shows "Not shared" right away (it never arrives).
+    // confirmed live) — Knowledge Base\Other-Player-Stat-Visibility.md. For these a received 0 is a real zero; for every
+    // other id a 0 on another player is the "not shared" placeholder and gets no row.
     private static readonly System.Collections.Generic.HashSet<int> SharedForOthers = new() { 11320, 13400, 11720, 11730 };
 
-    private enum RowState : byte { Value, Far, NotShared }
-
-    // One SectionPanel's rows. Strings are kept per row and replaced only when an input changes.
+    // One SectionPanel's rows (compacted: slot i = the i-th row that has a value). Strings are kept per slot and replaced
+    // only when the slot's id or value changed.
     private sealed class OvPanel
     {
         public readonly string TitleKey;
         public readonly (int Id, int RatingId)[] Defs;   // empty for the dynamic panels (identity / elemental)
         public readonly string[] Labels, Values;
-        public readonly RowState[] States;
         private readonly long[] _raw, _rating;
         private readonly int[] _ids;
         public int Count;
         public TagKind CaptionTag;
-        public string Hint = "";
-        private int _hintCount = -1;
 
         public OvPanel(string titleKey, (int, int)[] defs, int capacity)
         {
             TitleKey = titleKey; Defs = defs;
-            Labels = new string[capacity]; Values = new string[capacity]; States = new RowState[capacity];
+            Labels = new string[capacity]; Values = new string[capacity];
             _raw = new long[capacity]; _rating = new long[capacity]; _ids = new int[capacity];
             for (int i = 0; i < capacity; i++) { Labels[i] = ""; Values[i] = ""; _raw[i] = long.MinValue; }
         }
 
         public int Capacity => Labels.Length;
 
-        // True when row i must be (re)formatted for these inputs; records them.
-        public bool Changed(int i, int id, long raw, long rating, RowState st, bool force)
+        // True when slot i must be (re)formatted for these inputs; records them.
+        public bool Changed(int i, int id, long raw, long rating, bool force)
         {
-            if (!force && _ids[i] == id && _raw[i] == raw && _rating[i] == rating && States[i] == st) return false;
-            _ids[i] = id; _raw[i] = raw; _rating[i] = rating; States[i] = st;
+            if (!force && _ids[i] == id && _raw[i] == raw && _rating[i] == rating) return false;
+            _ids[i] = id; _raw[i] = raw; _rating[i] = rating;
             return true;
-        }
-
-        public void SetHint(int notShared, ILocalization loc, bool force)
-        {
-            if (notShared == _hintCount && !force) return;
-            _hintCount = notShared;
-            Hint = notShared > 0 ? loc.TFormat("ei.tag.notSharedCount", notShared) : "";
         }
 
         public void Clear() { Count = 0; CaptionTag = TagKind.None; }
@@ -98,6 +88,7 @@ public sealed partial class Plugin
     private ColorRgba _ratingHexOf;
     private object? _ovLang;                 // language marker: a switch re-formats every row once
     private SocialSnapshot? _idLastSnap;
+    private string _idCollections = "";      // IDENTITY's full-width Collections value ("" = no row)
     private int _idLastLuaVer = -1;
 
     private void InitOverview()
@@ -109,7 +100,7 @@ public sealed partial class Plugin
 
     private void ClearOverview()
     {
-        _identityPanel.Clear(); _elementalPanel.Clear(); _idLastSnap = null;
+        _identityPanel.Clear(); _elementalPanel.Clear(); _idLastSnap = null; _idCollections = "";
         foreach (var p in _statPanels) p.Clear();
     }
 
@@ -128,34 +119,28 @@ public sealed partial class Plugin
 
     private void RebuildStatPanel(OvPanel p, bool force)
     {
-        int notShared = 0;
-        bool far = false;
+        int n = 0;
         for (int i = 0; i < p.Defs.Length; i++)
         {
             var (id, ratingId) = p.Defs[i];
-            RowState st; long raw = 0, rating = long.MinValue;
-            bool shared = SharedForOthers.Contains(id);
-            if (id == AttrMaxHp && TargetVitals() is { IsKnown: true, MaxHp: > 0 } v) { st = RowState.Value; raw = v.MaxHp; }
-            else if (IsSelf) { TryAttr(id, out raw); st = RowState.Value; }
-            // Other player: a live value wins (even for an id outside the set); an unshared id the wire sends as 0 is
-            // "not shared", not a real zero; missing → Nearby-pending only for ids that would arrive in range.
-            else if (TryAttr(id, out raw) && (raw != 0 || shared)) st = RowState.Value;
-            else st = _isRemote && shared ? RowState.Far : RowState.NotShared;
-            if (st == RowState.Value && ratingId != 0 && TryAttr(ratingId, out var r)) rating = r;
-            if (st == RowState.Far) far = true; else if (st == RowState.NotShared) notShared++;
+            long raw, rating = long.MinValue;
+            if (id == AttrMaxHp && TargetVitals() is { IsKnown: true, MaxHp: > 0 } v) raw = v.MaxHp;
+            else if (IsSelf) TryAttr(id, out raw);
+            // Other player: only a received value makes a row; an unshared id's 0 is the placeholder, not a value.
+            else if (!TryAttr(id, out raw) || (raw == 0 && !SharedForOthers.Contains(id))) continue;
+            if (ratingId != 0 && TryAttr(ratingId, out var r)) rating = r;
 
-            if (p.Labels[i].Length == 0 || force) p.Labels[i] = AttrLabel(id);
-            if (!p.Changed(i, id, raw, rating, st, force)) continue;
-            p.Values[i] = st switch
+            bool reformat = p.Changed(n, id, raw, rating, force);
+            if (reformat)
             {
-                RowState.Far       => "—",
-                RowState.NotShared => "",
-                _ => FormatAttr(AttrNumType(id), raw) + (rating == long.MinValue ? "" : RatingSuffix(rating)),
-            };
+                p.Labels[n] = AttrLabel(id);
+                p.Values[n] = FormatAttr(AttrNumType(id), raw) + (rating == long.MinValue ? "" : RatingSuffix(rating));
+            }
+            n++;
         }
-        p.Count = p.Defs.Length;
-        p.CaptionTag = far ? TagKind.Nearby : TagKind.None;
-        p.SetHint(notShared, _loc, force);
+        p.Count = n;
+        // Rendered panels carry where their data came from: live stats need the player in range (Nearby). Self: none.
+        p.CaptionTag = n > 0 && !IsSelf && !IsFrozen ? TagKind.Nearby : TagKind.None;
     }
 
     // " (5,880)" muted + one size smaller, via rich text on the plain value label.
@@ -174,6 +159,7 @@ public sealed partial class Plugin
         var p = _identityPanel;
         p.Count = 0;
         p.CaptionTag = TagKind.None;
+        _idCollections = "";
         if (snap is not { Identity: var id }) return;
         var ci = CultureInfo.InvariantCulture;
         if (id.Guild.Length > 0) AddIdentityRow("ei.field.guild", id.Guild);
@@ -189,17 +175,19 @@ public sealed partial class Plugin
         else if (id.PartySize > 0) AddIdentityRow("ei.field.party", _loc.TFormat("ei.field.members", id.PartySize));
         if (TitleName(id.TitleId) is { Length: > 0 } title) AddIdentityRow("ei.field.title", title);
         if (id.MasterScore > 0) AddIdentityRow("ei.field.masterScore", id.MasterScore.ToString("N0", ci));
-        if (id.FashionCollect > 0 || id.RideCollect > 0 || id.WeaponSkinCollect > 0)
-            AddIdentityRow("ei.field.collections", _loc.TFormat("ei.field.collectionsValue",
-                id.FashionCollect.ToString("N0", ci), id.RideCollect.ToString("N0", ci), id.WeaponSkinCollect.ToString("N0", ci)));
-        if (p.Count > 0) p.CaptionTag = TagKind.Profile;
+        // Collections spans the full row (its value is long), so it's kept out of the paired rows.
+        _idCollections = id.FashionCollect > 0 || id.RideCollect > 0 || id.WeaponSkinCollect > 0
+            ? _loc.TFormat("ei.field.collectionsValue",
+                id.FashionCollect.ToString("N0", ci), id.RideCollect.ToString("N0", ci), id.WeaponSkinCollect.ToString("N0", ci))
+            : "";
+        if (p.Count > 0 || _idCollections.Length > 0) p.CaptionTag = TagKind.Profile;
     }
 
     private void AddIdentityRow(string labelKey, string value)
     {
         var p = _identityPanel;
         if (p.Count >= p.Capacity) return;
-        p.Labels[p.Count] = _loc.T(labelKey); p.Values[p.Count] = value; p.States[p.Count] = RowState.Value;
+        p.Labels[p.Count] = _loc.T(labelKey); p.Values[p.Count] = value;
         p.Count++;
     }
 
@@ -212,7 +200,7 @@ public sealed partial class Plugin
             {
                 var id = baseId + e * 10;
                 if (!TryAttr(id, out var raw) || raw == 0) continue;
-                if (p.Changed(n, id, raw, 0, RowState.Value, force))
+                if (p.Changed(n, id, raw, 0, force))
                 {
                     p.Labels[n] = AttrLabel(id);
                     p.Values[n] = FormatAttr(AttrNumType(id), raw);

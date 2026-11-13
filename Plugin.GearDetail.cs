@@ -9,8 +9,8 @@ namespace Stellar.EntityInspector;
 // Gear item popover (approved prototype): a house popover — GlassMenu, no title bar, 360 wide, draggable — anchored beside
 // the clicked card. Header = 32 px icon tile · the item name in its quality colour · muted "<SLOT> · ANOTHER PLAYER / YOU"
 // · round ✕; then SectionPanels BASIC (Profile tag for others) and ADVANCED.
-//   Others: GS "260 base", Upgrade [Not shared], Can reach "265 · 270" (every stage's GS), Refine / Perfection / Gem
-//           [Not shared]; ADVANCED — possible rolls.
+//   Others: GS "260 base", Can reach "265 · 270" (every stage's GS), Req. level, Max perfection; ADVANCED — possible
+//           rolls. (No rows for what the game never shares — user decision 2026-11-13.)
 //   Self:   GS (upgraded), Upgrade "Stage n of max", Refine, Perfection, Gem; ADVANCED — rolled.
 // Rows are snapshotted on open into two pooled row lists — no per-poll table walks.
 public sealed partial class Plugin
@@ -18,7 +18,7 @@ public sealed partial class Plugin
     private const float DetailW = 360f;
     private const int MaxBasicRows = 24, MaxAdvancedRows = 36;
 
-    private enum DetailKind : byte { Value, NotShared, Line, Sub }
+    private enum DetailKind : byte { Value, Line, Sub }
 
     private sealed class DetailRows
     {
@@ -122,8 +122,13 @@ public sealed partial class Plugin
         float x = r.X + r.Width + 8f;
         if (x + DetailW > CanvasWidthUnits() - 8f) x = r.X - DetailW - 8f;   // no room on the right → open to the left
         float y = System.MathF.Min(r.Y, CanvasHeight() - estH - 8f);
-        _gearDetailWindow.SetVisible(true);   // from hidden → remounts on top (Rule 5)
+        bool wasShown = _gearDetailWindow.IsShown;
+        _gearDetailWindow.SetVisible(true);   // from hidden → remounts on top by itself (Rule 5)
         _gearDetailWindow.SetRect(new WindowRect(System.MathF.Max(0f, x), System.MathF.Max(0f, y), DetailW, 0f));
+        // Already open (another card clicked): SetVisible doesn't remount it, and the click activated the inspector,
+        // which goes above it on fw ≥2.30 (non-sticky stacking) — the popup ended up BEHIND the inspector. Re-opening an
+        // already-visible child from its parent is Rule 5's approved BringToFront exception (not Topmost).
+        if (wasShown) _gearDetailWindow.BringToFront();
     }
 
     private void BuildGearDetailRows(GearCard card)
@@ -147,11 +152,7 @@ public sealed partial class Plugin
         else
         {
             if (card.BaseGs > 0) AddGd(_loc.T("ei.gd.gs"), _loc.TFormat("ei.gd.gsBase", card.BaseGs.ToString("N0", ci)));
-            if (hasStages)
-            {
-                AddNotShared(_loc.T("ei.gd.upgrade"));
-                AddGd(_loc.T("ei.gd.canReach"), JoinGs(card.StageGs!));
-            }
+            if (hasStages) AddGd(_loc.T("ei.gd.canReach"), JoinGs(card.StageGs!));
         }
         if (row is { } r)
         {
@@ -167,10 +168,9 @@ public sealed partial class Plugin
         }
         else
         {
-            AddNotShared(_loc.T("ei.gd.refine"));
-            AddNotShared(_loc.T("ei.gd.perfection"));
+            // Upgrade stage / refine / perfection / gem are never shared for other players: no rows (show only what we
+            // get — user decision 2026-11-13); the footnote says so. Max perfection is table data, so it stays.
             if (row is { PerfectCap: > 0 } pr) AddGd(_loc.T("ei.gd.maxPerfection"), pr.PerfectCap.ToString("N0", ci));
-            AddNotShared(_loc.T("ei.gd.gem"));
         }
         if (row is { } r2)
         {
@@ -194,7 +194,6 @@ public sealed partial class Plugin
     }
 
     private void AddGd(string label, string value) => _gd.Add(DetailKind.Value, label, value);
-    private void AddNotShared(string label) => _gd.Add(DetailKind.NotShared, label, "");
     private void AddGdLine(string text) => _gd.Add(DetailKind.Line, text, "");
     private void AddGdSub(string text) => _gd.Add(DetailKind.Sub, text, "");
 
