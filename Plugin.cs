@@ -57,7 +57,7 @@ public sealed partial class Plugin : IStellarPlugin, Stellar.PluginContracts.IFr
             new WindowSpec(
                 Id:          "entityinspector.main",
                 Title:       _loc.T("ei.window.title"),
-                DefaultRect: new WindowRect(80f, 80f, 930f, 620f),
+                DefaultRect: new WindowRect(80f, 80f, 980f, 620f),
                 Category:    WindowCategory.HUD,
                 // GlassMenu (was Party): the inspector is a full menu window like DataInspector /
                 // ModuleOptimizer — the themed glass chrome with a real title bar (drag handle + ✕)
@@ -68,12 +68,12 @@ public sealed partial class Plugin : IStellarPlugin, Stellar.PluginContracts.IFr
               // Gameplay HUD: inspects in-world entities — draw only while in-world and not on a loading screen.
               ShouldRender = () => _services.ClientState.Phase == GamePhase.World
                                    && (_services.ClientState.UiState & GameUIState.Loading) == 0,
-              // House-style redesign (approved 2026-11-13): default = minimum = 930 × 620 — the 340 px PORTRAIT panel +
+              // House-style redesign (approved 2026-11-13): default = minimum = 980 × 620 — the 340 px PORTRAIT panel +
               // the two-column Overview / 6-tab track need it; the Location map keeps scaling when it grows.
               // Prebuild: the window (and its KeepAlive tabs) is built in the background, so the first open and every tab
               // switch are instant (KB Plugin-Performance-Rules §5).
               Prebuild = true,
-              Resizable = true, MinWidth = 930f, MinHeight = 620f, MaxWidth = 1400f, MaxHeight = 1100f },
+              Resizable = true, MinWidth = 980f, MinHeight = 620f, MaxWidth = 1400f, MaxHeight = 1100f },
             BuildRoot(),
             OnClose: CloseInspector));
 

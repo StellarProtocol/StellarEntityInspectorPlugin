@@ -11,16 +11,17 @@ namespace Stellar.EntityInspector;
 public sealed partial class Plugin
 {
     private const float StatLineH = 22f;    // one pair line (fits the 18 px inline tag)
-    private const float StatColumnGap = 16f;
+    private const float StatColumnGap = 18f;
     // FIXED column geometry (in-game review 2026-11-13): weighted cells size to their content first, so the two columns
     // drifted per row. Every row now uses the same label + value widths, so all left values right-align on one x and all
-    // right labels start on one x. Sized for the narrowest right column (930 px window: ~558 − 20 panel padding − the
-    // scrollbar inset ≈ 524): 2 × (108 + 6 + 138) + 16 = 520. A wider window leaves the slack at the right.
+    // right labels start on one x. Row = 2 × (134 + 6 + 138) + 18 = 574 px; the window minimum is sized for it (house rule
+    // 18: widen, don't cram): at 980 px the right column ≈ 980 − 24 − 340 − 8 = 608, − 20 panel padding − the scrollbar
+    // inset ≈ 574. A wider window leaves the slack at the right.
     // The value cell fits the widest inline "Not shared" tag of any shipped locale (house rule 10). Tag = 6 + 12 icon + 4
     // + bold-11 label + 7 px; label estimates at ~6.3 px/Latin char, 11 px/CJK char: fil "Hindi ibinabahagi" ≈ 107 → 136,
     // id "Tidak dibagikan" ≈ 95 → 124, en "Not shared" ≈ 63 → 92, th "ไม่แชร์" ≈ 40 → 69, ja "非共有" / ko "비공개" ≈ 33 → 62.
-    // Labels get the rest (108 px ≈ 14 characters, longer ones ellipsize).
-    private const float StatLabelW = 108f, StatValueW = 138f, StatLabelGap = 6f;
+    // Labels keep 134 px so long stat names ("Lucky Strike DMG Multiplier") stay readable.
+    private const float StatLabelW = 134f, StatValueW = 138f, StatLabelGap = 6f;
 
     private HudElement BuildOverviewBody()
     {
