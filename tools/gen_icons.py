@@ -13,6 +13,7 @@ Glyphs:
   hatch  - the undyed "Default" swatch: a rounded square with diagonal hatching
   close  - the round x button of the popovers
   pin    - the Location empty-state tile (a map pin)
+  person - the header tile when the class is unknown (a generic person)
 
 Sizes: the glyph's size in canvas units x the UI scales the game runs at (canvas -> screen 0.75 at 1080p, 1.0 at
 1440p, 1.25 / 1.5 / 2.0 above), plus 16 and 32. The plugin picks the bitmap nearest to units x live scale.
@@ -27,7 +28,7 @@ OUT = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "Icons")
 SCALES = [0.75, 1.0, 1.25, 1.5, 2.0]
 
 # name -> glyph size in canvas units (what the window draws). Keep in sync with Plugin.Style.Blocks.cs.
-UNITS = {"radar": 12, "card": 12, "hatch": 12, "close": 14, "pin": 16}
+UNITS = {"radar": 12, "card": 12, "hatch": 12, "close": 14, "pin": 16, "person": 24}
 
 
 def sizes_for(units):
@@ -138,6 +139,16 @@ def pin(n):
     return p.done()
 
 
+def person(n):
+    """Generic person: a filled head over a filled shoulder dome."""
+    p = Pen(n)
+    p.dot(12, 8.5, 4.2)
+    a, b = p.pt(4.5, 14.5), p.pt(19.5, 30)
+    p.d.ellipse([a, b], fill=255)
+    p.d.rectangle([(0, p.pt(0, 21)[1]), (p.img.size[0], p.img.size[1])], fill=0)   # cut the dome flat at the bottom
+    return p.done()
+
+
 def close(n):
     p = Pen(n)
     p.line((6, 6), (18, 18))
@@ -145,7 +156,7 @@ def close(n):
     return p.done()
 
 
-DRAW = {"radar": radar, "card": card, "hatch": hatch, "close": close, "pin": pin}
+DRAW = {"radar": radar, "card": card, "hatch": hatch, "close": close, "pin": pin, "person": person}
 
 if __name__ == "__main__":
     os.makedirs(OUT, exist_ok=True)

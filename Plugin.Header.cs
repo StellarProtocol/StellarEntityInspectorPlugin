@@ -83,6 +83,7 @@ public sealed partial class Plugin
 
     private void RebuildHeader()
     {
+        DiagUnknownProfession();
         var kind = IsFrozen ? StatusKind.Session : _isRemote ? StatusKind.Far : StatusKind.Nearby;
         long lvl = LevelValue(), seasonLvl = AttrOr(AttrSeasonLevel, 0), fp = FightPointValue(),
              season = AttrOr(AttrSeasonStrength, 0), age = kind == StatusKind.Far ? ProfileAgeMinutes() : -1;
@@ -122,11 +123,12 @@ public sealed partial class Plugin
                 _statusMain = age < 0 ? _loc.T("ei.status.far")
                             : age == 0 ? _loc.T("ei.status.farNow")
                             : _loc.TFormat("ei.status.farAge", age);
-                _statusTail = " · " + lv + " · " + score;
+                // A 0 / unknown score is dropped with its "·" (a profile without user_attr_data read "Lv 60 · 0").
+                _statusTail = " · " + lv + (fp > 0 ? " · " + score : "");
                 break;
             default:
                 _statusMain = _loc.T("ei.status.nearby");
-                _statusTail = " · " + lv + " · " + _loc.TFormat("ei.status.ability", score)
+                _statusTail = " · " + lv + (fp > 0 ? " · " + _loc.TFormat("ei.status.ability", score) : "")
                             + (season > 0 ? " · " + _loc.TFormat("ei.status.illusion", season.ToString("N0", ci)) : "");
                 break;
         }
@@ -177,10 +179,37 @@ public sealed partial class Plugin
         return fp != 0 ? fp : _socialSnap?.FightPoint ?? 0;
     }
 
+    // Every source, in order: broadcast attr → self PlayerState / the social reply → the party roster's entry for them.
     private int ProfessionValue()
     {
-        long socialFallback = IsSelf ? _services.PlayerState.Profession : _socialSnap?.ProfessionId ?? 0;
-        return (int)AttrOr(AttrProfessionId, socialFallback);
+        long fallback = IsSelf ? _services.PlayerState.Profession : _socialSnap?.ProfessionId ?? 0;
+        if (fallback <= 0 && _socialSnap?.Party is { } party)
+        {
+            long cid = _target.Value >> 16;
+            foreach (var m in party.Members)
+                if (m.CharId == cid && m.ProfessionId > 0) { fallback = m.ProfessionId; break; }
+        }
+        return (int)AttrOr(AttrProfessionId, fallback);
+    }
+
+    // Diagnostics (developer mode only): once per target whose class stays unknown, log which parts the cached social
+    // reply had — tells a thin-mask reply (identity only) from a full ID-card reply that simply lacks profession_data.
+    private long _profDiagLogged;
+
+    private void DiagUnknownProfession()
+    {
+        if (ProfessionValue() > 0 || IsSelf || IsFrozen || !_services.Framework.DeveloperMode) return;
+        long cid = _target.Value >> 16;
+        if (cid == _profDiagLogged) return;
+        _profDiagLogged = cid;
+        var s = _socialSnap;
+        _services.Log.Info(s is null
+            ? $"[EntityInspector][Diag] class unknown for charId={cid}: no cached social reply, no broadcast attrs={_targetAttrs.Count}"
+            : $"[EntityInspector][Diag] class unknown for charId={cid}: social name={s.Name.Length > 0} level={s.Level} " +
+              $"fightPoint={s.FightPoint} professionId={s.ProfessionId} gear={s.Gear.Count} fashion={s.Fashion.Count} " +
+              $"guild={s.Identity.Guild.Length > 0} title={s.Identity.TitleId} location={(s.Location is null ? "absent" : "present")} " +
+              $"party={(s.Party is null ? "absent" : s.Party.Members.Count.ToString())} broadcastAttrs={_targetAttrs.Count} " +
+              "(gear/fashion/location absent ⇒ thin-mask reply)");
     }
 
     // Spec (e.g. "Icicle"): the talent-derived spec when its root buff is seen (ICombatSpec.TryGetTalentSpec,

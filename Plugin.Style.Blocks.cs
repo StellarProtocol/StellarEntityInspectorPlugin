@@ -53,7 +53,8 @@ public sealed partial class Plugin
     private static readonly IconSet CardIcon  = new("card", 12, 9, 12, 15, 16, 18, 24, 32);    // "Profile" tag
     private static readonly IconSet HatchIcon = new("hatch", 12, 9, 12, 15, 16, 18, 24, 32);   // undyed "Default" swatch
     private static readonly IconSet CloseIcon = new("close", 14, 10, 14, 16, 18, 21, 28, 32);
-    private static readonly IconSet PinIcon   = new("pin", 16, 12, 16, 20, 24, 32);                 // Location empty state
+    private static readonly IconSet PinIcon   = new("pin", 16, 12, 16, 20, 24, 32);
+    private static readonly IconSet PersonIcon = new("person", 24, 16, 18, 24, 30, 32, 36, 48);   // header, class unknown                 // Location empty state
 
     // Canvas units → screen pixels (1.0 at 1440p, 0.75 at 1080p). Refreshed by the 10 Hz tick while the window shows.
     private float _uiScale = 1f;
@@ -188,9 +189,12 @@ public sealed partial class Plugin
     private HudElement HeaderIconTile()
     {
         float pad = (ToolIconSize - ToolGlyphSize) / 2f;
+        // Class unknown (e.g. a thin profile reply with no profession) → a neutral white person glyph, never an empty tile.
         return new CellElement(new BubbleElement(new RowElement(new HudElement[]
             {
-                new GameTextureElement(ProfIcon, ToolGlyphSize, ToolGlyphSize, () => _profUv),
+                new ConditionalElement(() => ProfessionValue() > 0,
+                    Then: new GameTextureElement(ProfIcon, ToolGlyphSize, ToolGlyphSize, () => _profUv),
+                    Else: Glyph(PersonIcon)),
             }, Gap: 0.01f, Justify: RowJustify.Center))
         {
             FillColorFn = () => Fade(AccentColor()), CornerRadius = 9f, PaddingX = pad, PaddingY = pad,
