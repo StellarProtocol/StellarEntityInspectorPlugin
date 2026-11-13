@@ -70,7 +70,8 @@ public sealed partial class Plugin
     private object? _onLineLang;
     private string? _onLineLabel;
 
-    // Offline + a drawn map → the map is dimmed and labelled "Last known position" (Plugin.Location.Draw.cs / .Ui.cs).
+    // Offline + a drawn map → the "Last known position" pill (Plugin.Location.Ui.cs). The map itself draws normally
+    // (user decision 2026-11-13: no dimming).
     private bool LocShowsLastKnown => _onState == OnlineState.Offline && _onTarget == _target && !IsSelf;
 
     // Ask for the target's status (tab open / Refresh / far auto-refresh). Only while the Location tab shows.
@@ -118,7 +119,6 @@ public sealed partial class Plugin
             _onOfflineMs = (long)off;
             _onLabel = lua.ReadGlobalString(StOutLbl) ?? "";
             _onState = _onOfflineMs == 0 ? OnlineState.Online : OnlineState.Offline;
-            _lastSu = float.NaN;   // dim / undim the map on the next draw
         }
         catch { StatusFailed(); }
     }
