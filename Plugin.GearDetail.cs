@@ -122,13 +122,12 @@ public sealed partial class Plugin
         float x = r.X + r.Width + 8f;
         if (x + DetailW > CanvasWidthUnits() - 8f) x = r.X - DetailW - 8f;   // no room on the right → open to the left
         float y = System.MathF.Min(r.Y, CanvasHeight() - estH - 8f);
-        bool wasShown = _gearDetailWindow.IsShown;
-        _gearDetailWindow.SetVisible(true);   // from hidden → remounts on top by itself (Rule 5)
+        _gearDetailWindow.SetVisible(true);
         _gearDetailWindow.SetRect(new WindowRect(System.MathF.Max(0f, x), System.MathF.Max(0f, y), DetailW, 0f));
-        // Already open (another card clicked): SetVisible doesn't remount it, and the click activated the inspector,
-        // which goes above it on fw ≥2.30 (non-sticky stacking) — the popup ended up BEHIND the inspector. Re-opening an
-        // already-visible child from its parent is Rule 5's approved BringToFront exception (not Topmost).
-        if (wasShown) _gearDetailWindow.BringToFront();
+        // Front on EVERY open (Rule 5 exception): stacking sorts layer first, activation second, and the inspector (HUD)
+        // is lifted to the upper layer by its own BringToFront — a HUD popup opened from hidden stays on the lower layer,
+        // behind it (KB WindowBuilder-Patterns.md "Window stacking model v2"). Not Topmost.
+        _gearDetailWindow.BringToFront();
     }
 
     private void BuildGearDetailRows(GearCard card)

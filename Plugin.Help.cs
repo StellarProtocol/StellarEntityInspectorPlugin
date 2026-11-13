@@ -55,8 +55,11 @@ public sealed partial class Plugin
         float x = MathF.Max(10f, r.X + r.Width - TipWidth);
         float y = MathF.Min(r.Y + r.Height + 4f, CanvasHeight() - 40f);
         _tipRect = new WindowRect(x, y, TipWidth, 0f);
-        _tipWindow.SetVisible(true);   // opens from hidden → remounts on top (no BringToFront needed, Rule 5)
+        _tipWindow.SetVisible(true);
         _tipWindow.SetRect(_tipRect);
+        // Front on every open: the inspector (HUD) is lifted to the upper layer by its BringToFront, so a HUD popover
+        // opened from hidden would sit behind it (KB WindowBuilder-Patterns.md "Window stacking model v2"). Not Topmost.
+        _tipWindow.BringToFront();
         // The first-ever open mounts the window and applies its DefaultRect AFTER this SetRect → re-assert the anchored
         // rect for the next few frames (one-shot Posts, not a standing per-frame subscription).
         _tipRepositionLeft = 4;
