@@ -28,6 +28,8 @@ public sealed partial class Plugin
     {
         if (!_target.IsPlayer || IsFrozen) return OnlineState.Unknown;
         if (IsSelf) return OnlineState.Online;
+        // Live broadcast present = in our area right now = online by definition, whatever a cached reply says.
+        if (!_isRemote) return OnlineState.Online;
         if (TargetPresence() is { } p) return p.IsOnline ? OnlineState.Online : OnlineState.Offline;
         return RefreshAwaiting && _refreshTarget == _target ? OnlineState.Pending : OnlineState.Unknown;
     }
