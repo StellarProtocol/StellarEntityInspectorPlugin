@@ -47,7 +47,8 @@ public sealed partial class Plugin
                 new SpacerElement(0f, PillH),   // the bar keeps its height when it has no pill
             }, Gap: 6f),
             StateLine(() => _locZone, () => TextColor(), bold: true),
-            StateLine(LocDetailLine, () => MutedColor()),
+            // Offline target: no distance / age (they are not there now); the slot stays, empty (user 2026-11-13).
+            StateLine(() => LocShowsLastKnown ? "" : LocDetailLine(), () => MutedColor()),
         });
 
     // Small dark pill (20 px, r9): black @60 % with a bold white label — reads as a map caption.
