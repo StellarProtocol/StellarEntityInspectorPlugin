@@ -78,7 +78,6 @@ public sealed partial class Plugin
             _locState = LocState.Unavailable;
         }
         TickLocationRefresh();   // far target: keep its social location fresh (Plugin.Location.Refresh.cs)
-        TickOnlineStatus();      // online / last-seen answer (Plugin.Location.Status.cs)
     }
 
     private LocState UpdateLocation()

@@ -80,7 +80,6 @@ public sealed partial class Plugin
         _tab = t;
         _gearDetailWindow.SetVisible(false);           // the item popup belongs to the Gear tab's context
         if (t == Tab.Party) RequestPartyRefresh();     // a current roster on every tab open (floored per target)
-        if (t == Tab.Location) RequestOnlineStatus();  // online / last seen, asked on every tab open
         RebuildSnapshots();                            // the newly shown tab's data now, not on the next 10 Hz tick
     }
 }

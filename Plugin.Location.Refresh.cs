@@ -107,7 +107,6 @@ public sealed partial class Plugin
         if (_refreshFirstMs == long.MinValue) _refreshFirstMs = now;
         _refreshAwaitSince = now;
         _refreshBaseline = LocTargetReceivedAt;
-        if (_tab == Tab.Location) RequestOnlineStatus();   // status rides the same refreshes (Location tab only)
         try { _services.EntityDetail.RefreshSocialSnapshot(_target); }
         catch (Exception ex) { _services.Log.Warning($"[EntityInspector][Social] refresh failed: {ex.Message}"); }
     }
