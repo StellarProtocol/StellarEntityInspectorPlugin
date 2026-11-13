@@ -55,8 +55,7 @@ public sealed partial class Plugin
                 }, Gap: 0.01f)),
                 new ConditionalElement(() => _ptState == PartyState.Ok,
                     new ScrollElement(new ListElement(() => _ptCount, slots) { Gap = 0.01f }, 300f), Fill: true),
-                new ConditionalElement(() => _ptState == PartyState.Ok,
-                    new TextElement(() => _ptSummary, Color: () => MutedColor(), NoWrap: true)),
+                StateLine(() => _ptState == PartyState.Ok ? _ptSummary : "", () => MutedColor()),
             });
     }
 

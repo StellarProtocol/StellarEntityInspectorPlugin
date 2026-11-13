@@ -18,7 +18,7 @@ public sealed partial class Plugin
 {
     private const int AttrLevel = 10000, AttrSeasonLevel = 10070, AttrProfessionId = 220,
                       AttrSeasonStrength = 11440;
-    private const float PortraitPanelW = 268f;
+    private const float PortraitPanelW = 340f;   // widened from the prototype's 268 after the first in-game review
 
     private HudElement BuildRoot() => new ColumnElement(new HudElement[]
     {

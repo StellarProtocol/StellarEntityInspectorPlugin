@@ -12,7 +12,7 @@ namespace Stellar.EntityInspector;
 // and is aspect-preserved; everything under it has a fixed height, so nothing moves when HP/shield/imagines change.
 public sealed partial class Plugin
 {
-    private const int PortraitMinW = 248, PortraitMinH = 260;   // RT host minimum (panel 268 − 2×10 padding)
+    private const int PortraitMinW = 320, PortraitMinH = 260;   // RT host minimum (panel 340 − 2×10 padding)
     private const float HpBarH = 20f, HpFrameRadius = 6f, HpFramePad = 2f;
     private const float TileRowH = 26f;
     private static readonly ColorRgba ShieldBand = new(1f, 1f, 1f, 0.55f);   // light overlay after the HP fill
@@ -28,7 +28,7 @@ public sealed partial class Plugin
                 TransparentBackground: true),   // only the character draws — no dark box behind (user request 2026-06-13)
             new TextElement(() => _loc.T("ei.portrait.gestures"), Color: () => MutedColor(), NoWrap: true, FontSize: 12)
                 { Ellipsize = true, Height = 16f },
-            BuildHpBar(),
+            FixedLine(HpBarH, BuildHpBar()),   // same row height with or without vitals (far = empty bar, "—")
             BuildImagineTile(0),
             BuildImagineTile(1),
         });

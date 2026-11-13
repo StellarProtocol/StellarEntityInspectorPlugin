@@ -31,8 +31,8 @@ public sealed partial class Plugin
             DataTag(() => SkillItemCount == 0 && _isRemote && !IsFrozen ? TagKind.Nearby : TagKind.None, TagCaptionH),
             new HudElement[]
             {
-                new ConditionalElement(() => SkillItemCount == 0, new TextElement(
-                    () => _loc.T(_isRemote ? "ei.skill.farNote" : "ei.skill.none"), Color: () => MutedColor())),
+                StateLine(() => SkillItemCount > 0 ? "" : _loc.T(_isRemote ? "ei.skill.farNote" : "ei.skill.none"),
+                    () => MutedColor()),
                 new ConditionalElement(() => SkillItemCount > 0,
                     new VirtualListElement(() => SkillItemCount, SkillRowPitch, pool, first => _skFirst = first, 300f),
                     Fill: true),

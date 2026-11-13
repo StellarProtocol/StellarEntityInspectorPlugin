@@ -40,10 +40,8 @@ public sealed partial class Plugin
                     PrimaryPill(RefreshLabel, RefreshLocationNow, LocPillLabelW, RefreshEnabled)),
                 new SpacerElement(0f, PillH),   // the bar keeps its height when it has no pill
             }, Gap: 6f),
-            new ConditionalElement(() => _locZone.Length > 0,
-                new TextElement(() => _locZone, Color: () => TextColor(), NoWrap: true, FontSize: 13) { Bold = true, Ellipsize = true }),
-            new ConditionalElement(() => LocDetailLine().Length > 0,
-                new TextElement(LocDetailLine, Color: () => MutedColor(), NoWrap: true) { Ellipsize = true }),
+            StateLine(() => _locZone, () => TextColor(), bold: true),
+            StateLine(LocDetailLine, () => MutedColor()),
         });
 
     // Same-size placeholder for the map: vertically centred via two Fill spacers (a Fill Conditional is the toolkit's

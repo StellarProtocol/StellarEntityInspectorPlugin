@@ -92,6 +92,15 @@ public sealed partial class Plugin
     // on the same line. `trailing` (CaptionedPanel only — ⚠️ a second `params` overload would silently swallow the first
     // child, house rule) = a control at the right end of the caption row (the Weapon chip, a data tag).
     private const float CaptionRowHeight = 24f;
+    // A state-dependent message line (far note, footer, empty message) ALWAYS keeps this height — its text is just empty
+    // in the states that have nothing to say — so nothing below it moves when the target goes far ↔ nearby (in-game
+    // review 2026-11-13). One line, ellipsized.
+    private const float StateLineH = 20f;
+
+    private static HudElement StateLine(Func<string> text, Func<ColorRgba?> color, bool bold = false)
+        => FixedLine(StateLineH, bold
+            ? new TextElement(text, Color: color, NoWrap: true, FontSize: 13) { Bold = true, Ellipsize = true }
+            : new TextElement(text, Color: color, NoWrap: true) { Ellipsize = true });
     private const float PanelGap = 8f;
 
     private HudElement SectionPanel(Func<string> caption, Func<string> hint, params HudElement[] children)

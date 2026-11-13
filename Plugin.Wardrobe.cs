@@ -58,8 +58,7 @@ public sealed partial class Plugin
             {
                 new ScrollElement(new ColumnElement(new HudElement[]
                 {
-                    new ConditionalElement(() => _wdFarLine.Length > 0 && _wardrobeRows.Count > 0,
-                        new TextElement(() => _wdFarLine, Color: () => CautionColor())),
+                    StateLine(() => _wardrobeRows.Count > 0 ? _wdFarLine : "", () => CautionColor()),
                     new ConditionalElement(() => _wardrobeRows.Count == 0, WardrobeEmptyBox()),
                     new ListElement(() => _wardrobeRows.Count, rows) { Gap = 2f },
                 }, Gap: 6f), 300f),

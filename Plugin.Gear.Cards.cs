@@ -8,11 +8,12 @@ namespace Stellar.EntityInspector;
 // card (150 × 160) beside a 5-column grid of tile cards (2 rows, r6). Each card: muted slot label · item icon · item name
 // in its quality colour · the bottom line (GS, plus a lock tag or a stage bar). Clicking a card opens the item popover
 // anchored beside it. Cards are fixed-height (struts) so a name/GS change never moves the grid.
-// ⚠️ Grid cells FLEX (equal weights) instead of the prototype's fixed 84 px: at the 860 px minimum window the right
-// column is too narrow for 150 + 5 × 84 + gaps, so the cells shrink to fit (≈ 84 px from ~920 px wide).
+// ⚠️ Grid cells FLEX (equal weights) instead of the prototype's fixed 84 px: at the minimum window the right column is
+// too narrow for 150 + 5 × 84 + gaps, so the cells shrink to fit. Cards are ~1.5× the prototype's height (in-game review
+// 2026-11-13: the small cards left most of the tab empty) — 44 px icons, names wrap to 2 lines before ellipsizing.
 public sealed partial class Plugin
 {
-    private const float WeaponCardW = 150f, WeaponCardH = 160f;
+    private const float WeaponCardW = 150f, WeaponCardH = 256f;
     private const float GridGap = 4f;
     private const float SmallCardH = (WeaponCardH - GridGap) / 2f;   // two rows = the weapon card's height
     private const float PipW = 14f, PipH = 6f;
@@ -25,8 +26,8 @@ public sealed partial class Plugin
             new ScrollElement(new ColumnElement(new HudElement[]
             {
                 // Far players with NO data at all (no broadcast, no social gear) get the note instead of empty slots.
-                new ConditionalElement(() => !_gearHasData, new TextElement(
-                    () => _isRemote ? _loc.T("ei.gear.emptyNote") : _loc.T("ei.gear.none"), Color: () => MutedColor())),
+                StateLine(() => _gearHasData ? "" : _isRemote ? _loc.T("ei.gear.emptyNote") : _loc.T("ei.gear.none"),
+                    () => MutedColor()),
                 new ConditionalElement(() => _gearHasData, new RowElement(new HudElement[]
                 {
                     new CellElement(GearCardElement(0, big: true), Width: WeaponCardW),
@@ -49,20 +50,20 @@ public sealed partial class Plugin
     {
         var hover = new HoverFlag();
         float h = big ? WeaponCardH : SmallCardH;
-        int icon = big ? 56 : 20;
+        int icon = big ? 80 : 44;
         var content = new ColumnElement(new HudElement[]
         {
-            new TextElement(() => _gearCards[idx].Slot ?? "", Color: () => MutedColor(), NoWrap: true, FontSize: big ? 12 : 10)
-                { Bold = true, Ellipsize = true, Height = big ? 16f : 12f },
+            new TextElement(() => _gearCards[idx].Slot ?? "", Color: () => MutedColor(), NoWrap: true, FontSize: big ? 12 : 11)
+                { Bold = true, Ellipsize = true, Height = big ? 16f : 14f },
             new RowElement(new HudElement[]
             {
                 new GameTextureElement(() => GearIcon(idx), icon * 4 / 3, icon, () => _gearUv[idx]),
             }, Gap: 0.01f, Justify: RowJustify.Center),
-            new TextElement(() => _gearCards[idx].Name ?? "", Color: () => _gearCards[idx].NameCol, NoWrap: !big,
-                FontSize: big ? 13 : 11) { Bold = true, Ellipsize = true, MaxLines = big ? 2 : 1 },
+            new TextElement(() => _gearCards[idx].Name ?? "", Color: () => _gearCards[idx].NameCol,
+                FontSize: big ? 13 : 12) { Bold = true, Ellipsize = true, MaxLines = 2, Height = big ? 34f : 30f },
             GearBottomRow(idx, big),
             StageBar(idx),
-        }, Gap: big ? 4f : 1f);
+        }, Gap: big ? 6f : 3f);
         return new ColumnElement(new HudElement[]
         {
             new BubbleElement(new SelectableElement(new RowElement(new HudElement[]
@@ -84,7 +85,7 @@ public sealed partial class Plugin
     private HudElement GearBottomRow(int idx, bool big) => new RowElement(new HudElement[]
     {
         new CellElement(new TextElement(() => _gearCards[idx].Bottom ?? "", Color: () => MutedColor(), NoWrap: true,
-            FontSize: big ? 12 : 10) { Bold = true, Ellipsize = true, Height = big ? 16f : 12f }, Weight: 1f),
+            FontSize: big ? 12 : 11) { Bold = true, Ellipsize = true, Height = big ? 16f : 14f }, Weight: 1f),
         new ConditionalElement(() => _gearCards[idx].Lock, new BubbleElement(new RowElement(new HudElement[]
             {
                 new SpacerElement(2f, 16f),
