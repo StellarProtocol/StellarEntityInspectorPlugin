@@ -61,15 +61,27 @@ public sealed partial class Plugin
             () => _wardrobeRows.Count > 0 ? _loc.T("ei.wardrobe.copyHint") : "", DataTag(WardrobeTag, TagCaptionH),
             new HudElement[]
             {
-                StateLine(() => _wardrobeRows.Count > 0 ? (_wdFarLine.Length > 0 ? _wdFarLine : _wdHint) : "",
-                    () => _wdFarLine.Length > 0 ? CautionColor() : MutedColor()),
+                // Summary row (approved 2026-11-22, option A): "9 pieces · 2 dyed" / the amber far line on the left, the
+                // fixed-width "Copy outfit code" pill on the right (Plugin.Wardrobe.ShareCode.cs). The 20 px line is
+                // dropped 4 px so it sits on the 28 px pill's centre line.
+                new RowElement(new HudElement[]
+                {
+                    new CellElement(new ColumnElement(new HudElement[]
+                    {
+                        new SpacerElement(0f, (PillH - StateLineH) / 2f),
+                        StateLine(() => _wardrobeRows.Count > 0 ? (_wdFarLine.Length > 0 ? _wdFarLine : _wdHint) : "",
+                            () => _wdFarLine.Length > 0 ? CautionColor() : MutedColor()),
+                    }, Gap: 0.01f), Weight: 1f),
+                    CopyOutfitCodePill(),
+                }, Gap: 6f),
                 new ScrollElement(new ColumnElement(new HudElement[]
                 {
                     new ConditionalElement(() => _wardrobeRows.Count == 0, WardrobeEmptyBox()),
                     new ListElement(() => _wardrobeRows.Count, rows) { Gap = 2f },
                 }, Gap: 6f), 300f),
                 // Copy feedback (house rule 13): "✓ Copied D97D36 (Magical Love · slot 3)" for ~3 s; always one line.
-                StateLine(CopyFooter, () => SuccessColor()),
+                // Also the outfit-code result (green / amber partial / red failure) — one footer, coloured per message.
+                StateLine(CopyFooter, CopyFooterColor),
             });
     }
 
