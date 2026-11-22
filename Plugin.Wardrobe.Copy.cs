@@ -18,7 +18,10 @@ public sealed partial class Plugin
     private long _copiedKey = -1;            // (fashionId << 8) | chip index of the last copied chip
     private long _copiedAtMs = long.MinValue / 2;
     private string _copyFooter = "";
+    private FooterTone _copyFooterTone = FooterTone.Success;   // the outfit code also reports amber (partial) / red
     private bool _copyWarned;
+
+    private enum FooterTone { Success, Caution, Danger }
 
     private static long ChipKey(int fashionId, int chip) => ((long)fashionId << 8) | (uint)chip;
 
@@ -27,6 +30,13 @@ public sealed partial class Plugin
            && Environment.TickCount64 - _copiedAtMs < ChipFlashMs;
 
     private string CopyFooter() => Environment.TickCount64 - _copiedAtMs < CopyFooterMs ? _copyFooter : "";
+
+    private ColorRgba? CopyFooterColor() => _copyFooterTone switch
+    {
+        FooterTone.Caution => CautionColor(),
+        FooterTone.Danger  => Menu.Danger,
+        _                  => SuccessColor(),
+    };
 
     private HudElement DyeChip(int row, int chip)
     {
@@ -86,6 +96,8 @@ public sealed partial class Plugin
         var piece = _wardrobeRows[row];
         _copiedKey = ChipKey(piece.FashionId, chip);
         _copiedAtMs = Environment.TickCount64;
+        _codeCopiedAtMs = long.MinValue / 2;   // a chip copy ends the outfit pill's "Copied" flash
+        _copyFooterTone = FooterTone.Success;
         _copyFooter = _loc.TFormat("ei.wardrobe.copied", hex, piece.Name, _chipNum[k]);
     }
 }
